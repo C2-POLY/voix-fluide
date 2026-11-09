@@ -14,7 +14,7 @@ Rust 2021, pinned to 1.85.1 by `rust-toolchain.toml` (rustup), eframe and egui 0
 
 ## Commands
 
-Run them from the repository root.
+Run them from the repository root (or a worktree's root), never with `--manifest-path` from another folder. rustup picks the toolchain from the current folder's `rust-toolchain.toml`. From the workspace folder above, it uses the default stable instead of 1.85.1, and every switch between the two recompiles all 324 crates (about 3 minutes) in the shared `target/`.
 
 ```bash
 # Build and run
