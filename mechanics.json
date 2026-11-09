@@ -1,0 +1,301 @@
+{
+  "version": 1,
+  "values": [
+    {
+      "name": "dictation key code",
+      "group": "controls",
+      "value": 61,
+      "source": "function 0x1000bc388"
+    },
+    {
+      "name": "dictation key",
+      "group": "controls",
+      "value": "Right Option",
+      "source": "function 0x1000bc388"
+    },
+    {
+      "name": "default activation mode",
+      "group": "controls",
+      "value": "toggle",
+      "source": "function 0x1000bd290"
+    },
+    {
+      "name": "tap/hold threshold",
+      "group": "controls",
+      "value": 0.4,
+      "unit": "s",
+      "source": "function 0x10069f624"
+    },
+    {
+      "name": "toggle help",
+      "group": "controls",
+      "value": "Tap once to start, tap again to stop.",
+      "source": "function 0x10009f21c"
+    },
+    {
+      "name": "hold help",
+      "group": "controls",
+      "value": "Record only while the shortcut is held.",
+      "source": "function 0x10009f21c"
+    },
+    {
+      "name": "automatic help",
+      "group": "controls",
+      "value": "Tap to toggle, hold for push-to-talk.",
+      "source": "function 0x10009f21c"
+    },
+    {
+      "name": "sample rate",
+      "group": "audio",
+      "value": 16000,
+      "unit": "Hz",
+      "source": "function 0x100802778"
+    },
+    {
+      "name": "minimum samples",
+      "group": "audio",
+      "value": 16000,
+      "unit": "samples",
+      "source": "function 0x100802778"
+    },
+    {
+      "name": "default whisper size",
+      "group": "transcription",
+      "value": "Base",
+      "source": "function 0x1000e4210"
+    },
+    {
+      "name": "copy to clipboard default",
+      "group": "output",
+      "value": false,
+      "source": "function 0x1000be9a0"
+    },
+    {
+      "name": "paste into focused app",
+      "group": "output",
+      "value": true,
+      "source": "strings 'Clipboard Paste (Recommended)'"
+    },
+    {
+      "name": "start/stop tones",
+      "group": "audio",
+      "value": "synthesized",
+      "estimated": true
+    },
+    {
+      "name": "accent colour",
+      "group": "look",
+      "value": "#1A75FF",
+      "estimated": true
+    },
+    {
+      "name": "Parakeet model",
+      "group": "transcription",
+      "value": "Parakeet TDT v3 (Multilingual), 25 languages",
+      "source": "function 0x100724ec0"
+    },
+    {
+      "name": "dead microphone max RMS",
+      "group": "audio",
+      "value": 1e-05,
+      "source": "function 0x10056f890"
+    },
+    {
+      "name": "dead microphone max peak",
+      "group": "audio",
+      "value": 5e-05,
+      "source": "function 0x10056f8ac"
+    },
+    {
+      "name": "silence frame length",
+      "group": "audio",
+      "value": 20,
+      "unit": "ms",
+      "source": "function 0x10054e294"
+    },
+    {
+      "name": "silence max RMS",
+      "group": "audio",
+      "value": 0.002,
+      "source": "function 0x10054e294"
+    },
+    {
+      "name": "silence max peak",
+      "group": "audio",
+      "value": 0.01,
+      "source": "function 0x10054e294"
+    },
+    {
+      "name": "silence max frame RMS",
+      "group": "audio",
+      "value": 0.0045,
+      "source": "function 0x10054e294"
+    },
+    {
+      "name": "silence skip max length",
+      "group": "audio",
+      "value": 4000,
+      "unit": "ms",
+      "estimated": true
+    },
+    {
+      "name": "skip silent recordings default",
+      "group": "audio",
+      "value": false,
+      "source": "function 0x1000be4e8"
+    },
+    {
+      "name": "whisper no-speech alone threshold",
+      "group": "transcription",
+      "value": 0.85,
+      "estimated": true
+    },
+    {
+      "name": "overlay position default",
+      "group": "overlay",
+      "value": "Bottom of Screen",
+      "source": "function 0x1000c434c"
+    },
+    {
+      "name": "overlay distance from screen edge",
+      "group": "overlay",
+      "value": 50,
+      "unit": "pt",
+      "source": "function 0x1000c48cc"
+    },
+    {
+      "name": "overlay size default",
+      "group": "overlay",
+      "value": "Medium",
+      "source": "function 0x1000c4b10"
+    },
+    {
+      "name": "overlay width (Medium)",
+      "group": "overlay",
+      "value": 380,
+      "unit": "pt",
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "overlay height (Medium)",
+      "group": "overlay",
+      "value": 156,
+      "unit": "pt",
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "panel width (Medium)",
+      "group": "overlay",
+      "value": 340,
+      "unit": "pt",
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "panel corner radius (Medium)",
+      "group": "overlay",
+      "value": 18,
+      "unit": "pt",
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "bar count (Medium)",
+      "group": "overlay",
+      "value": 8,
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "bar width (Medium)",
+      "group": "overlay",
+      "value": 3.5,
+      "unit": "pt",
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "bar spacing (Medium)",
+      "group": "overlay",
+      "value": 4.5,
+      "unit": "pt",
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "bar height range (Medium)",
+      "group": "overlay",
+      "value": "6-28",
+      "unit": "pt",
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "preview text width (Medium)",
+      "group": "overlay",
+      "value": 286,
+      "unit": "pt",
+      "source": "function 0x100e9f984"
+    },
+    {
+      "name": "preview font size (Medium)",
+      "group": "overlay",
+      "value": 13,
+      "unit": "pt",
+      "source": "function 0x100e9e4a4"
+    },
+    {
+      "name": "overlay result linger",
+      "group": "overlay",
+      "value": 1.8,
+      "unit": "s",
+      "estimated": true
+    },
+    {
+      "name": "overlay preview characters",
+      "group": "overlay",
+      "value": 150,
+      "source": "function 0x1000a4a94"
+    },
+    {
+      "name": "key release wait before paste",
+      "group": "output",
+      "value": 2.0,
+      "unit": "s",
+      "source": "function 0x1007e59d8"
+    },
+    {
+      "name": "key release poll interval",
+      "group": "output",
+      "value": 15,
+      "unit": "ms",
+      "source": "function 0x1007ed560"
+    },
+    {
+      "name": "clipboard restore delay",
+      "group": "output",
+      "value": 500,
+      "unit": "ms",
+      "source": "function 0x1007367e8"
+    },
+    {
+      "name": "restore clipboard only if unchanged",
+      "group": "output",
+      "value": true,
+      "source": "function 0x100733bc0"
+    },
+    {
+      "name": "Parakeet weights in this rebuild",
+      "group": "transcription",
+      "value": "istupakov/parakeet-tdt-0.6b-v3-onnx int8 (~670 MB)",
+      "estimated": true
+    },
+    {
+      "name": "accessibility re-check interval",
+      "group": "permissions",
+      "value": 2,
+      "unit": "s",
+      "source": "function 0x100fcba60"
+    },
+    {
+      "name": "accessibility settings URL",
+      "group": "permissions",
+      "value": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+      "source": "function 0x100f9b5f4"
+    }
+  ]
+}
