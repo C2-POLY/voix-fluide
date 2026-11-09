@@ -1,3 +1,7 @@
 target/
 .testhome/
 shots/
+
+# oh-my-claudecode runtime state
+.omc/
+.DS_Store
