@@ -1,9 +1,10 @@
+mod claude;
 mod engine;
 mod mac;
 mod whisper;
 
 use egui::{Align, Color32, CornerRadius, FontId, Layout, Margin, RichText, Sense, Stroke, Vec2};
-use engine::{Cmd, Handles, Job, Mode, ModelState, Phase, Settings, SharedRef, LANGUAGES};
+use engine::{Cmd, Handles, Job, MiniSession, Mode, ModelState, Phase, SessionState, Settings, SharedRef, Target, LANGUAGES};
 use std::path::PathBuf;
 use whisper::ModelSize;
 
@@ -17,6 +18,7 @@ const MUTED: Color32 = Color32::from_rgb(140, 146, 160);
 const ACCENT: Color32 = Color32::from_rgb(0x1A, 0x75, 0xFF);
 const RED: Color32 = Color32::from_rgb(255, 69, 58);
 const GREEN: Color32 = Color32::from_rgb(0x22, 0xC5, 0x5E);
+const AMBER: Color32 = Color32::from_rgb(255, 196, 92);
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -139,7 +141,12 @@ struct App {
     overlay_until: f64,
     overlay_note: Option<String>,
     overlay_pos: Option<egui::Pos2>,
+    /// A short note at the bottom of the window and the time it goes away.
+    toast: Option<(String, f64, bool)>,
 }
+
+/// How long a toast stays at the bottom of the window (this rebuild).
+const TOAST_S: f64 = 3.0;
 
 /// ContentView.startAccessibilityPolling (0x100fcb98c / 0x100fcba60): checks
 /// AXIsProcessTrusted, then Task.sleep(0x77359400 ns) = every 2 s.
@@ -151,6 +158,55 @@ const OVERLAY_OFFSET: f32 = 50.0;
 const OVERLAY_LINGER_S: f64 = 1.8;
 /// SettingsStore.defaultTranscriptionPreviewCharLimit (0x1000a4a94): 150 characters.
 const OVERLAY_PREVIEW_CHARS: usize = 150;
+/// How long the pill shows a finished mini-session (this rebuild, estimated).
+const CLAUDE_LINGER_S: f32 = 6.0;
+
+/// A mini-session's state as the pill shows it.
+#[derive(Clone, Copy, PartialEq)]
+enum ClaudeTone {
+    Running,
+    Done,
+    Failed,
+}
+
+/// The pill's line for the newest running mini-session, or for one that just ended.
+fn claude_note(sessions: &[MiniSession]) -> Option<(String, ClaudeTone)> {
+    let s = sessions
+        .iter()
+        .rev()
+        .find(|s| s.state == SessionState::Running)
+        .or_else(|| sessions.iter().rev().find(|s| s.finished.is_some_and(|t| t.elapsed().as_secs_f32() < CLAUDE_LINGER_S)))?;
+    let name = s.repo_name();
+    Some(match &s.state {
+        // The pill's label already says "Claude".
+        SessionState::Running => (format!("{name} · en cours"), ClaudeTone::Running),
+        SessionState::Done { resume, .. } => (format!("{name} · terminé\n{resume}"), ClaudeTone::Done),
+        SessionState::Failed(e) => (format!("{name} · {e}"), ClaudeTone::Failed),
+    })
+}
+
+/// VF_SESSIONS=1 (screenshots): one running, one finished and one failed mini-session.
+fn sample_sessions(root: &std::path::Path) -> Vec<MiniSession> {
+    let now = std::time::Instant::now();
+    let at = |id: u64, repo: &str, when: &str, question: &str, state: SessionState| MiniSession {
+        id,
+        repo: root.join(repo),
+        question: question.into(),
+        finished: (state != SessionState::Running).then_some(now),
+        state,
+        when: when.into(),
+        started: now - std::time::Duration::from_secs(12),
+    };
+    vec![
+        at(1, "fourchette", "09:12", "Dans Fourchette, quelle commande lance les tests de bout en bout ?", SessionState::Failed("Claude n'a pas pu répondre : Credit balance is too low".into())),
+        at(2, "voix-fluide", "09:14", "Dans voix fluide, où est réglé le seuil entre appui court et appui long ?", SessionState::Done {
+            session_id: "5f1c2a7e-8d34-4b9e-a0c1-3e2f6d7b9a10".into(),
+            resume: "Le seuil de 0,4 seconde est la constante TAP_HOLD_THRESHOLD dans engine.rs.".into(),
+            reponse: "Le seuil est `TAP_HOLD_THRESHOLD = 0.4` en haut de `src/engine.rs`. Le `controller` le compare à la durée de l'appui en mode Automatique : plus court, l'appui bascule l'enregistrement ; plus long, il enregistre tant que la touche est tenue.".into(),
+        }),
+        at(3, "fourchette", "09:15", "Et dans quel fichier sont gérés les worktrees ?", SessionState::Running),
+    ]
+}
 
 /// One row of FluidVoice's BottomOverlayView.LayoutConstants.get(for:) (0x100e9e4a4),
 /// tables at 0x101a58800..0x101a589a0; previewMaxWidth table 0x101a585e0 (0x100e9f984).
@@ -194,6 +250,10 @@ impl App {
         style(&cc.egui_ctx);
         let settings = Settings::load();
         let shared = engine::new_shared(settings);
+        if std::env::var_os("VF_SESSIONS").is_some() {
+            let mut sh = shared.lock().unwrap();
+            sh.sessions = sample_sessions(&claude::expand_home(&sh.settings.repo_root));
+        }
         // The screenshot run only draws the window: no shortcut watcher, no model loading.
         let pill_test = std::env::var_os("VF_PILL_SHOT").map(PathBuf::from);
         let screenshot = pill_test.clone().or(screenshot);
@@ -237,6 +297,8 @@ impl App {
             overlay_until: 0.0,
             overlay_note: None,
             overlay_pos: None,
+            // VF_TOAST=<text> (screenshots): show a toast that never goes away.
+            toast: std::env::var("VF_TOAST").ok().map(|t| (t, f64::INFINITY, true)),
         }
     }
 
@@ -261,9 +323,9 @@ fn style(ctx: &egui::Context) {
     v.selection.bg_fill = ACCENT.linear_multiply(0.6);
     v.widgets.inactive.bg_fill = ROW;
     v.widgets.inactive.weak_bg_fill = ROW;
-    v.widgets.inactive.bg_stroke = Stroke::new(1.0, PANEL_STROKE);
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, PANEL_STROKE);
     v.widgets.hovered.weak_bg_fill = Color32::from_rgb(34, 37, 46);
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, Color32::from_rgb(70, 76, 90));
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(70, 76, 90));
     v.widgets.active.weak_bg_fill = Color32::from_rgb(44, 48, 60);
     for w in [
         &mut v.widgets.inactive,
@@ -286,7 +348,7 @@ fn style(ctx: &egui::Context) {
 fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
         .fill(PANEL)
-        .stroke(Stroke::new(1.0, PANEL_STROKE))
+        .stroke(Stroke::new(1.0_f32, PANEL_STROKE))
         .corner_radius(CornerRadius::same(18))
         .inner_margin(Margin::same(18))
         .show(ui, |ui| {
@@ -317,7 +379,7 @@ impl App {
     /// opening the main window. It never takes the keyboard or clicks, so the
     /// text still lands in the app the person is writing in.
     #[allow(clippy::too_many_arguments)]
-    fn overlay(&mut self, ctx: &egui::Context, settings: &Settings, phase: Phase, levels: &[f32], elapsed: Option<f32>, last: &str, message: &Option<String>, now: f64) {
+    fn overlay(&mut self, ctx: &egui::Context, settings: &Settings, phase: Phase, target: Target, levels: &[f32], elapsed: Option<f32>, last: &str, message: &Option<String>, sessions: &[MiniSession], now: f64) {
         if self.screenshot.is_some() || !settings.overlay {
             self.prev_phase = phase;
             return;
@@ -327,6 +389,8 @@ impl App {
             self.overlay_until = now + OVERLAY_LINGER_S;
             self.overlay_note = match message {
                 Some(m) => Some(m.clone()),
+                // A question for Claude: the mini-session's state takes over.
+                None if target == Target::Session => None,
                 None if !last.is_empty() => {
                     let n = last.chars().count();
                     Some(if n > OVERLAY_PREVIEW_CHARS {
@@ -347,7 +411,8 @@ impl App {
         }
         self.prev_phase = phase;
         let lingering = phase == Phase::Idle && now < self.overlay_until && self.overlay_note.is_some();
-        if phase == Phase::Idle && !lingering {
+        let claude = if phase == Phase::Idle && !lingering { claude_note(sessions) } else { None };
+        if phase == Phase::Idle && !lingering && claude.is_none() {
             return;
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(33));
@@ -373,7 +438,8 @@ impl App {
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(Color32::TRANSPARENT))
                 .show(ctx, |ui| {
-                    draw_pill(ui, ui.max_rect(), layout, top, phase, levels, elapsed, note.as_deref(), has_message, now);
+                    let claude = claude.as_ref().map(|(t, tone)| (t.as_str(), *tone));
+                    draw_pill(ui, ui.max_rect(), layout, top, phase, levels, elapsed, note.as_deref(), has_message, claude, now);
                 });
         });
     }
@@ -381,10 +447,17 @@ impl App {
 
 /// The pill's look, from FluidVoice's layout table: a rounded panel `container_width`
 /// wide hugging the screen edge, the waveform, a small state label and time, and the
-/// text preview (last 150 characters) when the size shows one.
+/// text preview (last 150 characters) when the size shows one. With `claude` and no
+/// dictation under way, it shows that mini-session instead.
 #[allow(clippy::too_many_arguments)]
-fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase: Phase, levels: &[f32], elapsed: Option<f32>, note: Option<&str>, has_message: bool, now: f64) {
+fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase: Phase, levels: &[f32], elapsed: Option<f32>, note: Option<&str>, has_message: bool, claude: Option<(&str, ClaudeTone)>, now: f64) {
     let p = ui.painter();
+    let claude = claude.filter(|_| phase == Phase::Idle);
+    let claude_color = |tone: ClaudeTone| match tone {
+        ClaudeTone::Running => ACCENT,
+        ClaudeTone::Done => GREEN,
+        ClaudeTone::Failed => AMBER,
+    };
     // Text shown under the waveform.
     let preview: Option<(String, Color32)> = if !l.shows_preview {
         None
@@ -392,7 +465,10 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
         match phase {
             Phase::Recording => None,
             Phase::Transcribing => Some(("Transcription…".to_string(), MUTED)),
-            Phase::Idle => note.map(|t| (t.to_string(), if has_message { Color32::from_rgb(255, 196, 92) } else { TEXT })),
+            Phase::Idle => match claude {
+                Some((t, tone)) => Some((t.to_string(), if tone == ClaudeTone::Failed { AMBER } else { TEXT })),
+                None => note.map(|t| (t.to_string(), if has_message { AMBER } else { TEXT })),
+            },
         }
     };
     let galley = preview.map(|(t, c)| {
@@ -409,7 +485,7 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
         rect,
         CornerRadius::same(l.corner_radius as u8),
         Color32::from_rgba_unmultiplied(0, 0, 0, 235),
-        Stroke::new(1.0, Color32::from_rgb(60, 64, 76)),
+        Stroke::new(1.0_f32, Color32::from_rgb(60, 64, 76)),
         egui::StrokeKind::Inside,
     );
     let wave_cy = rect.top() + head_h / 2.0;
@@ -419,10 +495,10 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
     let bx0 = rect.center().x - total / 2.0;
     let start = levels.len().saturating_sub(l.bar_count);
     for i in 0..l.bar_count {
-        let lvl = match phase {
-            Phase::Recording => levels.get(start + i).copied().unwrap_or(0.0),
-            Phase::Transcribing => 0.3 + 0.3 * ((now as f32 * 6.0 + i as f32 * 0.6).sin()),
-            Phase::Idle => 0.0,
+        let lvl = match (phase, claude) {
+            (Phase::Recording, _) => levels.get(start + i).copied().unwrap_or(0.0),
+            (Phase::Transcribing, _) | (Phase::Idle, Some((_, ClaudeTone::Running))) => 0.3 + 0.3 * ((now as f32 * 6.0 + i as f32 * 0.6).sin()),
+            (Phase::Idle, _) => 0.0,
         }
         .clamp(0.0, 1.0);
         let h = l.min_bar + lvl * (l.max_bar - l.min_bar);
@@ -431,7 +507,8 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
         let col = match phase {
             Phase::Recording => Color32::WHITE,
             Phase::Transcribing => ACCENT,
-            Phase::Idle if has_message => Color32::from_rgb(255, 196, 92),
+            Phase::Idle if claude.is_some() => claude_color(claude.unwrap().1),
+            Phase::Idle if has_message => AMBER,
             Phase::Idle => GREEN,
         };
         p.rect_filled(r, CornerRadius::same((l.bar_width / 2.0).ceil() as u8), col);
@@ -442,7 +519,8 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
         let (left, dot) = match phase {
             Phase::Recording => ("Écoute", RED),
             Phase::Transcribing => ("Transcription", ACCENT),
-            Phase::Idle if has_message => ("Info", Color32::from_rgb(255, 196, 92)),
+            Phase::Idle if claude.is_some() => ("Claude", claude_color(claude.unwrap().1)),
+            Phase::Idle if has_message => ("Info", AMBER),
             Phase::Idle => ("Collé", GREEN),
         };
         let lx = rect.left() + l.h_padding;
@@ -472,6 +550,36 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
 }
 
 impl App {
+    /// The toast: a small dark capsule at the bottom centre of the window, above everything.
+    fn show_toast(&mut self, ctx: &egui::Context, now: f64) {
+        let Some((text, until, ok)) = self.toast.clone() else { return };
+        if now >= until {
+            self.toast = None;
+            return;
+        }
+        egui::Area::new(egui::Id::new("toast"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -24.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(28, 31, 40))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(70, 76, 90)))
+                    .corner_radius(CornerRadius::same(18))
+                    .inner_margin(Margin::symmetric(16, 10))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+                            ui.painter().circle_filled(r.center(), 4.0, if ok { GREEN } else { AMBER });
+                            ui.label(RichText::new(text).size(13.5).color(TEXT));
+                        });
+                    });
+            });
+        if until.is_finite() {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(until - now));
+        }
+    }
+
     fn screenshot_step(&mut self, ctx: &egui::Context) {
         // --screenshot <file>: draw ~120 frames, save the picture, quit.
         if let Some(path) = self.screenshot.clone() {
@@ -522,17 +630,19 @@ impl eframe::App for App {
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(Color32::TRANSPARENT))
                 .show(ctx, |ui| {
-                    let mut y = ui.max_rect().top() + 30.0;
-                    for (size, ph, note) in [
-                        (2u8, Phase::Recording, None),
-                        (2u8, Phase::Idle, Some("Bonjour, ceci est un essai de dictée vocale. Le texte doit apparaître dans la fenêtre.")),
-                        (1u8, Phase::Transcribing, None),
-                        (0u8, Phase::Recording, None),
+                    let mut y = ui.max_rect().top() + 24.0;
+                    let done = "voix-fluide · terminé\nLe seuil de 0,4 seconde est TAP_HOLD_THRESHOLD dans engine.rs.";
+                    for (size, ph, note, claude) in [
+                        (2u8, Phase::Recording, None, None),
+                        (2u8, Phase::Idle, Some("Bonjour, ceci est un essai de dictée vocale. Le texte doit apparaître dans la fenêtre."), None),
+                        (1u8, Phase::Transcribing, None, None),
+                        (2u8, Phase::Idle, None, Some((done, ClaudeTone::Done))),
+                        (0u8, Phase::Recording, None, None),
                     ] {
                         let l = pill_layout(size);
                         let r = egui::Rect::from_min_size(egui::pos2(ui.max_rect().center().x - l.overlay_width / 2.0, y), Vec2::new(l.overlay_width, l.overlay_height));
-                        draw_pill(ui, r, l, false, ph, &levels, elapsed, note, false, now);
-                        y += l.overlay_height + 24.0;
+                        draw_pill(ui, r, l, false, ph, &levels, elapsed, note, false, claude, now);
+                        y += l.overlay_height + 12.0;
                     }
                 });
             self.screenshot_step(ctx);
@@ -589,9 +699,11 @@ impl eframe::App for App {
                 sh.record_started.map(|t| t.elapsed().as_secs_f32()),
                 sh.mic_dead,
                 sh.last_wav.clone(),
+                sh.target,
+                sh.sessions.clone(),
             )
         };
-        let (phase, levels, model, last, history, message, mut settings, elapsed, mic_dead, last_wav) = snapshot;
+        let (phase, levels, model, last, history, message, mut settings, elapsed, mic_dead, last_wav, target, sessions) = snapshot;
         let mic_blocked = matches!(self.mic_access, mac::MicAccess::Denied | mac::MicAccess::Restricted | mac::MicAccess::NotAsked);
         let before = settings.clone();
 
@@ -622,7 +734,7 @@ impl eframe::App for App {
                     if mic_blocked || mic_dead {
                         egui::Frame::new()
                             .fill(Color32::from_rgb(58, 34, 10))
-                            .stroke(Stroke::new(1.0, Color32::from_rgb(150, 96, 30)))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(150, 96, 30)))
                             .corner_radius(CornerRadius::same(14))
                             .inner_margin(Margin::same(14))
                             .show(ui, |ui| {
@@ -652,7 +764,7 @@ impl eframe::App for App {
                     if settings.paste && !self.ax_trusted && self.screenshot.is_none() {
                         egui::Frame::new()
                             .fill(Color32::from_rgb(58, 34, 10))
-                            .stroke(Stroke::new(1.0, Color32::from_rgb(150, 96, 30)))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(150, 96, 30)))
                             .corner_radius(CornerRadius::same(14))
                             .inner_margin(Margin::same(14))
                             .show(ui, |ui| {
@@ -717,7 +829,7 @@ impl eframe::App for App {
                                 self.send(Cmd::Toggle);
                             }
                             let status = match phase {
-                                Phase::Idle => format!("Ou appuyez sur {}  ·  {}", settings.key.label, settings.mode.label()),
+                                Phase::Idle => format!("Ou appuyez sur {}  ·  {}\n{} pour poser une question à Claude Code", settings.key.label, settings.mode.label(), settings.session_key.label),
                                 Phase::Recording => format!("Écoute… {:.1} s", elapsed.unwrap_or(0.0)),
                                 Phase::Transcribing => "Transcription en cours sur cet ordinateur…".into(),
                             };
@@ -752,6 +864,61 @@ impl eframe::App for App {
                     });
                     ui.add_space(12.0);
 
+                    // Mini-sessions (newest first)
+                    card(ui, |ui| {
+                        caps(ui, "MINI-SESSIONS");
+                        if sessions.is_empty() {
+                            ui.label(RichText::new(format!("Maintenez {} et posez une question en nommant le dépôt : « Dans Fourchette, … ». Claude Code lit le code sans rien modifier.", settings.session_key.label)).color(MUTED).italics());
+                        }
+                        for s in sessions.iter().rev().take(20) {
+                            egui::Frame::new()
+                                .fill(ROW)
+                                .corner_radius(CornerRadius::same(10))
+                                .inner_margin(Margin::symmetric(12, 8))
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.push_id(s.id, |ui| {
+                                        let (state, col) = match &s.state {
+                                            SessionState::Running => (format!("en cours · {:.0} s", s.started.elapsed().as_secs_f32()), ACCENT),
+                                            SessionState::Done { .. } => ("terminé".to_string(), GREEN),
+                                            SessionState::Failed(_) => ("erreur".to_string(), AMBER),
+                                        };
+                                        ui.horizontal(|ui| {
+                                            ui.label(RichText::new(format!("{} · {}", s.when, s.repo_name())).size(11.5).color(MUTED));
+                                            ui.label(RichText::new(state).size(11.5).color(col));
+                                            if let SessionState::Done { session_id, .. } = &s.state {
+                                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                                    let cmd = claude::resume_command(&s.repo, session_id);
+                                                    if ui.small_button("Reprendre au terminal").on_hover_text(format!("Ouvre le Terminal et lance :\n{cmd}\n(la commande est aussi copiée)")).clicked() {
+                                                        mac::copy_text(&cmd);
+                                                        self.toast = Some(match claude::open_in_terminal(&s.repo, session_id) {
+                                                            Ok(()) => ("Commande copiée · Terminal ouvert".into(), now + TOAST_S, true),
+                                                            Err(e) => {
+                                                                eprintln!("terminal: {e}");
+                                                                ("Commande copiée — collez-la dans un terminal".into(), now + TOAST_S, false)
+                                                            }
+                                                        });
+                                                    }
+                                                });
+                                            }
+                                        });
+                                        ui.add(egui::Label::new(RichText::new(&s.question).italics().color(MUTED)).wrap());
+                                        match &s.state {
+                                            SessionState::Running => {}
+                                            SessionState::Done { resume, reponse, .. } => {
+                                                ui.add(egui::Label::new(RichText::new(resume).strong()).wrap().selectable(true));
+                                                ui.add(egui::Label::new(reponse).wrap().selectable(true));
+                                            }
+                                            SessionState::Failed(e) => {
+                                                ui.add(egui::Label::new(RichText::new(e).color(AMBER)).wrap().selectable(true));
+                                            }
+                                        }
+                                    });
+                                });
+                        }
+                    });
+                    ui.add_space(12.0);
+
                     // Settings
                     card(ui, |ui| {
                         caps(ui, "RÉGLAGES");
@@ -762,7 +929,8 @@ impl eframe::App for App {
                                 .selected_text(settings.key.label)
                                 .show_ui(ui, |ui| {
                                     for k in mac::SHORTCUTS {
-                                        ui.selectable_value(&mut settings.key, k, k.label);
+                                        // The mini-session key can't also dictate.
+                                        ui.add_enabled_ui(k != settings.session_key, |ui| ui.selectable_value(&mut settings.key, k, k.label));
                                     }
                                 });
                             ui.end_row();
@@ -883,6 +1051,25 @@ impl eframe::App for App {
                             });
                             ui.end_row();
 
+                            ui.label("Mini-session");
+                            ui.vertical(|ui| {
+                                egui::ComboBox::from_id_salt("session_key")
+                                    .width(230.0)
+                                    .selected_text(settings.session_key.label)
+                                    .show_ui(ui, |ui| {
+                                        for k in mac::SHORTCUTS {
+                                            ui.add_enabled_ui(k != settings.key, |ui| ui.selectable_value(&mut settings.session_key, k, k.label));
+                                        }
+                                    });
+                                ui.label(RichText::new("Cette touche enregistre une question pour Claude Code au lieu d'une dictée. Elle doit être différente de celle de la dictée.").size(12.0).color(MUTED));
+                                ui.horizontal(|ui| {
+                                    ui.label("Dossier des dépôts");
+                                    ui.add(egui::TextEdit::singleline(&mut settings.repo_root).desired_width(220.0));
+                                });
+                                ui.checkbox(&mut settings.speak, "Lire le résumé à voix haute");
+                            });
+                            ui.end_row();
+
                             ui.label("Sortie");
                             ui.vertical(|ui| {
                                 ui.checkbox(&mut settings.paste, "Coller dans l'application active");
@@ -924,7 +1111,8 @@ impl eframe::App for App {
                 });
             });
 
-        self.overlay(ctx, &settings, phase, &levels, elapsed, &last, &message, now);
+        self.overlay(ctx, &settings, phase, target, &levels, elapsed, &last, &message, &sessions, now);
+        self.show_toast(ctx, now);
 
         if settings.model != before.model {
             let mut sh = self.shared.lock().unwrap();
@@ -950,6 +1138,9 @@ impl eframe::App for App {
             || settings.overlay != before.overlay
             || settings.overlay_top != before.overlay_top
             || settings.overlay_size != before.overlay_size
+            || settings.session_key != before.session_key
+            || settings.repo_root != before.repo_root
+            || settings.speak != before.speak
         {
             settings.save();
             self.shared.lock().unwrap().settings = settings;
@@ -957,6 +1148,9 @@ impl eframe::App for App {
 
         if phase != Phase::Idle {
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        } else if sessions.iter().any(|s| s.state == SessionState::Running) {
+            // Keeps the elapsed time of running mini-sessions moving.
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
 
         self.screenshot_step(ctx);

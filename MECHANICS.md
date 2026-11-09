@@ -99,3 +99,18 @@ Addresses are in that binary. "estimated" means it was looked for and not found.
 | Settings button | opens `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`, then starts the 2 s polling | `ContentView.openAccessibilitySettings` 0x100f9b5f4 |
 | System prompt | FluidVoice never calls `AXIsProcessTrustedWithOptions` (not in its code); its global event tap gets it listed. This rebuild has no event tap, so "Réautoriser" calls `AXIsProcessTrustedWithOptions(prompt: true)` to get listed — deviation | disassembly search |
 | This rebuild | polls every 2 s (`AX_POLL_S`), shows "Accessibilité autorisée…" when access comes back | — |
+
+## Mini-sessions Claude Code (added in this rebuild)
+
+Not in FluidVoice: a voice remote for Claude Code (issue #1). Every value here is a choice of this rebuild.
+
+| Rule | Value | Source |
+|---|---|---|
+| Mini-session key | second shortcut, default **⌘ Commande droite** (keyCode 54); never the dictation key (the settings refuse it, and a saved equal pair is corrected at load) | `Settings::session_key` |
+| Recording | same as dictation (mode, minimum length, silence checks); while one key records, the other key is ignored | `controller`, `Target` |
+| Repository | a folder of the root (default `~/Documents/c2-poly/repo`) whose name appears in the sentence as whole words, case and accents ignored, `-`/`_` read as spaces, hidden folders skipped, longest name wins (a folder that is not a Git repository but holds exactly one, like a workspace with its code in `app/`, stands for that one); else the last repository used; else "Dites dans quel dépôt…" and nothing runs | `claude::route` |
+| Command | `claude -p <text> --tools Read,Grep,Glob --output-format json --setting-sources project --json-schema {resume, reponse} --append-system-prompt <answer in French>`, run in the repository; the session is kept on disk for `--resume` | `claude::args` |
+| Finding `claude` | PATH, then `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin`, `/usr/local/bin` (an app opened from the Finder has a short PATH) | `claude::find_claude` |
+| Output | never pasted, the clipboard untouched; the window lists the mini-sessions (newest first), "Reprendre au terminal" copies `cd <repo> && claude --resume <id>` | `start_session`, Mini-sessions card |
+| Pill | label "Claude", text "<dépôt> · en cours" while it runs, then "terminé" and the summary (or the error) for **6 s** (estimated) | `claude_note`, `CLAUDE_LINGER_S` |
+| Read aloud | the one-sentence summary through `say`, setting "Lire le résumé à voix haute", on by default | `Settings::speak` |

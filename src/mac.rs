@@ -267,8 +267,8 @@ pub fn run_with_own_permissions() {
         }
         // Pass a stop request from whoever started us on to the copy.
         CHILD_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
-        libc::signal(libc::SIGTERM, forward_signal as libc::sighandler_t);
-        libc::signal(libc::SIGINT, forward_signal as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, forward_signal as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, forward_signal as *const () as libc::sighandler_t);
         let mut status = 0;
         while libc::waitpid(pid, &mut status, 0) == -1
             && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)

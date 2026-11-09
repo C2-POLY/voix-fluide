@@ -1,6 +1,7 @@
 //! Recording, shortcut handling and the transcription worker.
 //! Rules come from MECHANICS.md (tap/hold threshold, minimum length, modes).
 
+use crate::claude;
 use crate::mac::{self, ShortcutKey};
 use crate::whisper::{self, Engine, ModelSize};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -92,6 +93,13 @@ pub struct Settings {
     pub overlay_top: bool,
     /// FluidVoice OverlaySize: 0 Pill, 1 Small, 2 Medium (default), 3 Large.
     pub overlay_size: u8,
+    /// Mini-session key (this rebuild): records like dictation, but asks Claude Code.
+    /// Always different from `key`.
+    pub session_key: ShortcutKey,
+    /// The folder whose sub-folders are the repositories a question can name.
+    pub repo_root: String,
+    /// Read the mini-session's one-sentence summary aloud with `say`.
+    pub speak: bool,
 }
 
 impl Default for Settings {
@@ -109,6 +117,9 @@ impl Default for Settings {
             overlay: true,
             overlay_top: false,
             overlay_size: 2,
+            session_key: mac::SHORTCUTS[1],
+            repo_root: "~/Documents/c2-poly/repo".into(),
+            speak: true,
         }
     }
 }
@@ -119,13 +130,15 @@ impl Settings {
     }
 
     pub fn load() -> Self {
+        std::fs::read_to_string(Self::path())
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .map(|v| Self::from_json(&v))
+            .unwrap_or_default()
+    }
+
+    fn from_json(v: &serde_json::Value) -> Self {
         let mut s = Settings::default();
-        let Ok(text) = std::fs::read_to_string(Self::path()) else {
-            return s;
-        };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-            return s;
-        };
         if let Some(m) = v["mode"].as_str().and_then(Mode::from_id) {
             s.mode = m;
         }
@@ -162,11 +175,30 @@ impl Settings {
         if let Some(n) = v["overlay_size"].as_u64() {
             s.overlay_size = n.min(3) as u8;
         }
+        if let Some(code) = v["session_key"].as_u64() {
+            if let Some(k) = mac::SHORTCUTS.iter().find(|k| k.code as u64 == code) {
+                s.session_key = *k;
+            }
+        }
+        if s.session_key == s.key {
+            s.session_key = mac::SHORTCUTS.into_iter().find(|k| *k != s.key).unwrap_or(s.session_key);
+        }
+        if let Some(r) = v["repo_root"].as_str() {
+            s.repo_root = r.to_string();
+        }
+        if let Some(b) = v["speak"].as_bool() {
+            s.speak = b;
+        }
         s
     }
 
     pub fn save(&self) {
-        let v = serde_json::json!({
+        let _ = std::fs::create_dir_all(whisper::app_dir());
+        let _ = std::fs::write(Self::path(), serde_json::to_string_pretty(&self.to_json()).unwrap_or_default());
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
             "mode": self.mode.id(),
             "key": self.key.code,
             "language": self.language,
@@ -179,9 +211,10 @@ impl Settings {
             "overlay": self.overlay,
             "overlay_top": self.overlay_top,
             "overlay_size": self.overlay_size,
-        });
-        let _ = std::fs::create_dir_all(whisper::app_dir());
-        let _ = std::fs::write(Self::path(), serde_json::to_string_pretty(&v).unwrap_or_default());
+            "session_key": self.session_key.code,
+            "repo_root": self.repo_root,
+            "speak": self.speak,
+        })
     }
 }
 
@@ -199,6 +232,38 @@ pub enum ModelState {
     Loading,
     Ready(String),
     Failed(String),
+}
+
+/// Where the text of a recording goes: pasted (dictation) or asked to Claude Code.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Target {
+    Dictation,
+    Session,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SessionState {
+    Running,
+    Done { session_id: String, resume: String, reponse: String },
+    Failed(String),
+}
+
+/// One question asked to Claude Code in a repository.
+#[derive(Clone, Debug)]
+pub struct MiniSession {
+    pub id: u64,
+    pub repo: std::path::PathBuf,
+    pub question: String,
+    pub state: SessionState,
+    pub when: String,
+    pub started: Instant,
+    pub finished: Option<Instant>,
+}
+
+impl MiniSession {
+    pub fn repo_name(&self) -> String {
+        self.repo.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -221,13 +286,19 @@ pub struct Shared {
     /// The last recording gave only exact silence (no microphone access).
     pub mic_dead: bool,
     pub last_wav: Option<std::path::PathBuf>,
+    /// Target of the recording under way (or of the last one).
+    pub target: Target,
+    /// Mini-sessions, oldest first.
+    pub sessions: Vec<MiniSession>,
+    /// The repository of the last mini-session, used when a question names none.
+    pub last_repo: Option<std::path::PathBuf>,
 }
 
 pub type SharedRef = Arc<Mutex<Shared>>;
 
 pub enum Cmd {
-    KeyDown,
-    KeyUp,
+    KeyDown(Target),
+    KeyUp(Target),
     Toggle,
     Cancel,
 }
@@ -235,7 +306,7 @@ pub enum Cmd {
 pub enum Job {
     Load(ModelSize),
     Download(ModelSize),
-    Transcribe(Vec<f32>, f32),
+    Transcribe(Vec<f32>, f32, Target),
 }
 
 pub struct Handles {
@@ -261,6 +332,9 @@ pub fn new_shared(settings: Settings) -> SharedRef {
         record_started: None,
         mic_dead: false,
         last_wav: None,
+        target: Target::Dictation,
+        sessions: Vec::new(),
+        last_repo: None,
     }))
 }
 
@@ -284,13 +358,18 @@ pub fn start(shared: SharedRef, ctx: egui::Context) -> Handles {
         let shared = shared.clone();
         let cmd_tx = cmd_tx.clone();
         std::thread::spawn(move || {
-            let mut was_down = false;
+            let mut was_down = [false; 2];
             loop {
-                let key = shared.lock().unwrap().settings.key;
-                let down = mac::key_down(key);
-                if down != was_down {
-                    let _ = cmd_tx.send(if down { Cmd::KeyDown } else { Cmd::KeyUp });
-                    was_down = down;
+                let keys = {
+                    let s = &shared.lock().unwrap().settings;
+                    [(s.key, Target::Dictation), (s.session_key, Target::Session)]
+                };
+                for (i, (key, target)) in keys.into_iter().enumerate() {
+                    let down = mac::key_down(key);
+                    if down != was_down[i] {
+                        let _ = cmd_tx.send(if down { Cmd::KeyDown(target) } else { Cmd::KeyUp(target) });
+                        was_down[i] = down;
+                    }
                 }
                 std::thread::sleep(Duration::from_millis(8));
             }
@@ -509,7 +588,7 @@ fn controller(rx: Receiver<Cmd>, jobs: Sender<Job>, shared: SharedRef, ctx: egui
     let mut rec: Option<Recorder> = None;
     let mut press_at: Option<Instant> = None;
 
-    let begin = |rec: &mut Option<Recorder>| {
+    let begin = |rec: &mut Option<Recorder>, target: Target| {
         {
             let sh = shared.lock().unwrap();
             if sh.phase != Phase::Idle {
@@ -528,6 +607,7 @@ fn controller(rx: Receiver<Cmd>, jobs: Sender<Job>, shared: SharedRef, ctx: egui
                 *rec = Some(r);
                 let mut sh = shared.lock().unwrap();
                 sh.phase = Phase::Recording;
+                sh.target = target;
                 sh.message = None;
                 sh.record_started = Some(Instant::now());
                 sh.levels.iter_mut().for_each(|l| *l = 0.0);
@@ -585,7 +665,7 @@ fn controller(rx: Receiver<Cmd>, jobs: Sender<Job>, shared: SharedRef, ctx: egui
             } else {
                 sh.mic_dead = false;
                 sh.phase = Phase::Transcribing;
-                let _ = jobs.send(Job::Transcribe(pcm, secs));
+                let _ = jobs.send(Job::Transcribe(pcm, secs, sh.target));
             }
         }
         drop(sh);
@@ -593,35 +673,41 @@ fn controller(rx: Receiver<Cmd>, jobs: Sender<Job>, shared: SharedRef, ctx: egui
     };
 
     while let Ok(cmd) = rx.recv() {
-        let (mode, phase) = {
+        let (mode, phase, current) = {
             let sh = shared.lock().unwrap();
-            (sh.settings.mode, sh.phase)
+            (sh.settings.mode, sh.phase, sh.target)
         };
         let recording = phase == Phase::Recording;
+        // While recording, only the key that started it counts.
+        if let Cmd::KeyDown(t) | Cmd::KeyUp(t) = cmd {
+            if recording && t != current {
+                continue;
+            }
+        }
         match cmd {
             Cmd::Toggle => {
                 press_at = None;
                 if recording {
                     finish(&mut rec, true)
                 } else {
-                    begin(&mut rec)
+                    begin(&mut rec, Target::Dictation)
                 }
             }
             Cmd::Cancel => {
                 press_at = None;
                 finish(&mut rec, false)
             }
-            Cmd::KeyDown => match mode {
+            Cmd::KeyDown(target) => match mode {
                 Mode::Toggle => {
                     if recording {
                         finish(&mut rec, true)
                     } else {
-                        begin(&mut rec)
+                        begin(&mut rec, target)
                     }
                 }
                 Mode::Hold => {
                     if !recording {
-                        begin(&mut rec)
+                        begin(&mut rec, target)
                     }
                 }
                 Mode::Automatic => {
@@ -629,12 +715,12 @@ fn controller(rx: Receiver<Cmd>, jobs: Sender<Job>, shared: SharedRef, ctx: egui
                         press_at = None;
                         finish(&mut rec, true)
                     } else {
-                        begin(&mut rec);
+                        begin(&mut rec, target);
                         press_at = Some(Instant::now());
                     }
                 }
             },
-            Cmd::KeyUp => match mode {
+            Cmd::KeyUp(_) => match mode {
                 Mode::Hold => {
                     if recording {
                         finish(&mut rec, true)
@@ -692,7 +778,7 @@ fn worker(rx: Receiver<Job>, shared: SharedRef, ctx: egui::Context) {
                     Err(e) => set_model(ModelState::Failed(e)),
                 }
             }
-            Job::Transcribe(pcm, secs) => {
+            Job::Transcribe(pcm, secs, target) => {
                 let (lang, paste, keep, key) = {
                     let sh = shared.lock().unwrap();
                     let s = &sh.settings;
@@ -730,6 +816,11 @@ fn worker(rx: Receiver<Job>, shared: SharedRef, ctx: egui::Context) {
                     Ok(text) if text.is_empty() => {
                         sh.message = Some("Aucune parole détectée.".into());
                     }
+                    Ok(text) if target == Target::Session => {
+                        // Never pasted, the clipboard is left alone.
+                        drop(sh);
+                        start_session(text, &shared, &ctx);
+                    }
                     Ok(text) => {
                         sh.last = text.clone();
                         sh.history.insert(
@@ -764,6 +855,57 @@ fn worker(rx: Receiver<Job>, shared: SharedRef, ctx: egui::Context) {
             }
         }
     }
+}
+
+/// Pick the repository, list the mini-session, and let its own thread wait for Claude
+/// Code, so the worker is free for the next dictation.
+fn start_session(question: String, shared: &SharedRef, ctx: &egui::Context) {
+    let (root, last) = {
+        let sh = shared.lock().unwrap();
+        (claude::expand_home(&sh.settings.repo_root), sh.last_repo.clone())
+    };
+    let Some(repo) = claude::route(&question, &root, last.as_deref()) else {
+        shared.lock().unwrap().message =
+            Some("Dites dans quel dépôt poser la question, par exemple « Dans Fourchette, … ».".into());
+        ctx.request_repaint();
+        return;
+    };
+    let id = {
+        let mut sh = shared.lock().unwrap();
+        let id = sh.sessions.last().map(|s| s.id + 1).unwrap_or(1);
+        sh.sessions.push(MiniSession {
+            id,
+            repo: repo.clone(),
+            question: question.clone(),
+            state: SessionState::Running,
+            when: clock(),
+            started: Instant::now(),
+            finished: None,
+        });
+        sh.last_repo = Some(repo.clone());
+        id
+    };
+    ctx.request_repaint();
+    let shared = shared.clone();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        let state = match claude::run(&question, &repo) {
+            Ok(a) => SessionState::Done { session_id: a.session_id, resume: a.resume, reponse: a.reponse },
+            Err(e) => SessionState::Failed(e),
+        };
+        let speak = {
+            let mut sh = shared.lock().unwrap();
+            if let Some(s) = sh.sessions.iter_mut().find(|s| s.id == id) {
+                s.state = state.clone();
+                s.finished = Some(Instant::now());
+            }
+            sh.settings.speak
+        };
+        ctx.request_repaint();
+        if let (true, SessionState::Done { resume, .. }) = (speak, &state) {
+            claude::say(resume);
+        }
+    });
 }
 
 fn clock() -> String {
@@ -816,4 +958,31 @@ fn tone(start: bool) {
             std::thread::sleep(Duration::from_millis(220));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_round_trip_keeps_the_session_fields() {
+        let mut s = Settings { session_key: mac::SHORTCUTS[2], repo_root: "/tmp/dépôts".into(), speak: false, ..Settings::default() };
+        s.key = mac::SHORTCUTS[3];
+        let back = Settings::from_json(&s.to_json());
+        assert_eq!(back.session_key, mac::SHORTCUTS[2]);
+        assert_eq!(back.key, mac::SHORTCUTS[3]);
+        assert_eq!(back.repo_root, "/tmp/dépôts");
+        assert!(!back.speak);
+    }
+
+    #[test]
+    fn session_fields_default_and_never_share_the_dictation_key() {
+        let d = Settings::from_json(&serde_json::json!({}));
+        assert_eq!(d.session_key.label, "⌘ Commande droite");
+        assert_eq!(d.repo_root, "~/Documents/c2-poly/repo");
+        assert!(d.speak);
+        let same = Settings::from_json(&serde_json::json!({"key": 54, "session_key": 54}));
+        assert_eq!(same.key.code, 54);
+        assert_ne!(same.session_key, same.key);
+    }
 }
