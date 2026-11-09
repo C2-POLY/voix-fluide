@@ -298,6 +298,8 @@ pub struct Engine {
     pub size: ModelSize,
 }
 
+// Only one engine exists at a time, so the size gap between variants doesn't matter.
+#[allow(clippy::large_enum_variant)]
 enum Kind {
     Whisper(WhisperEngine),
     Parakeet(Box<ParakeetTDT>),

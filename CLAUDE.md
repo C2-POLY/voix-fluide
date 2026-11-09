@@ -39,12 +39,13 @@ cargo run -- --transcribe <file.wav> [language]
 (cd /tmp && VF_PILL_SHOT=<out.png> <repo>/target/debug/voix-fluide --screenshot /dev/null)
 ```
 
-Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps. Both pictures are 1120x1440 pixels (560x720 points on a Retina screen).
+Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window. Both pictures are 1120x1440 pixels (560x720 points on a Retina screen).
 
 ## Architecture
 
 - `main.rs`: arguments (`--screenshot`, `--transcribe`, `--signature-check`), the window (`App`: settings, history, permissions) and the floating pill (`draw_pill`, `pill_layout`).
-- `engine.rs`: the settings (`Settings`, kept in `settings.json`), the shared state (`Shared` behind a `Mutex`), and two threads: `controller` (the shortcut, tap or hold, the microphone through `cpal`, `Cmd`s) and `worker` (loading the model and transcribing, `Job`s). Silence and dead-microphone checks, resampling to 16 kHz, the history (50 entries).
+- `engine.rs`: the settings (`Settings`, kept in `settings.json`), the shared state (`Shared` behind a `Mutex`, with the mini-sessions and `last_repo`), and two threads: `controller` (the two shortcut keys, tap or hold, the microphone through `cpal`, `Cmd`s carrying a `Target`) and `worker` (loading the model and transcribing, `Job`s; a `Target::Session` text starts a mini-session in its own thread instead of being pasted). Silence and dead-microphone checks, resampling to 16 kHz, the history (50 entries).
+- `claude.rs`: mini-sessions. Finds the `claude` binary (PATH, then the usual install places), picks the repository named in the sentence (`route`), builds the read-only `claude -p` arguments (`args`), runs it in the repository and reads its JSON (`run`, `parse`).
 - `whisper.rs`: the models (`ModelSize`, Whisper and Parakeet), their download into `~/Library/Application Support/VoixFluide/models/`, and the Whisper decoder on candle.
 - `mac.rs`: macOS. The shortcut key state, the accessibility and microphone permissions, the relaunch that answers for its own permissions (`run_with_own_permissions`, a signed copy in `VoixFluide/programme/`), and the paste into the active app (`paste_text`, a Cmd+V posted after filling the clipboard, which it can put back).
 - `build.rs`: embeds an Info.plist (bundle id, name, version, microphone and accessibility reasons); without it macOS gives the microphone as silence.
@@ -60,7 +61,7 @@ Issues are written in French and kept short:
 - Title: `<Zone> : <ce qu'il apporte>`, for example `Pastille : afficher la langue détectée`.
 - Body: `**En tant que** …, **je veux** …, **afin de** …`, then `**Critères d'acceptation**` with 3 to 5 checkboxes, then `**Livré** : \`vX.Y.Z\`` once delivered.
 - Type: the organisation's issue types, `Feature` (a capability, a parent issue when it is split), `Task` (an improvement, tooling, docs) or `Bug`. Split work is sub-issues; "B cannot start before A" is a `blocked by` relation, not a sentence.
-- Labels: one `zone:` label (`zone:raccourci`, `zone:micro`, `zone:transcription`, `zone:modèles`, `zone:pastille`, `zone:collage`, `zone:fenêtre`, `zone:réglages`, `zone:permissions`, `zone:outillage`), and once delivered one version label (`v0.2.0`). Create a missing label rather than skipping it.
+- Labels: one `zone:` label (`zone:raccourci`, `zone:micro`, `zone:transcription`, `zone:modèles`, `zone:pastille`, `zone:collage`, `zone:fenêtre`, `zone:réglages`, `zone:permissions`, `zone:claude`, `zone:outillage`), and once delivered one version label (`v0.2.0`). Create a missing label rather than skipping it.
 - Assignee: the person who did the work.
 - Status on the project: `Backlog` (defined), `Ready` (ready to take), `In progress` (its worktree exists), `In review` (PR open), `To test` (merged, a criterion still untested by hand), `Done` (tested by the dev and merged).
 - Every delivered change has an issue, including small ones only visible in `git log`.
