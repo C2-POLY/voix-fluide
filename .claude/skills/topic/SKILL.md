@@ -161,10 +161,10 @@ La capture de la pastille montre ses états les uns sous les autres (écoute, co
 Ne lance pas l'app toi-même pour lui : une dictée demande sa voix, son micro et ses permissions. Donne au dev la commande pour la lancer **depuis le worktree**, en un seul bloc `bash`, plus une ligne sur ce qu'il doit essayer (par exemple : dicter une phrase dans Notes avec la touche du raccourci, en appui puis en tapotant) :
 
 ```bash
-cargo run --manifest-path <chemin absolu du worktree>/Cargo.toml
+cd <chemin absolu du worktree> && cargo run
 ```
 
-Le chemin est celui du worktree, vérifié avec `git worktree list` avant l'envoi : ne reprends jamais celui d'une commande précédente. Si son terminal montre un autre chemin, dis-le tout de suite. Le programme copié et signé dans `VoixFluide/programme/` se refait quand le binaire change : si macOS redemande une permission, c'est attendu après un changement de `mac.rs` ou de `build.rs`, pas un bug.
+Le chemin est celui du worktree, vérifié avec `git worktree list` avant l'envoi : ne reprends jamais celui d'une commande précédente. Garde le `cd` : rustup choisit la version de Rust selon le dossier courant, et un `cargo run --manifest-path` lancé d'ailleurs prend une autre version et recompile tout (voir « Commands » de `CLAUDE.md`). Si son terminal montre un autre chemin, dis-le tout de suite. Le programme copié et signé dans `VoixFluide/programme/` se refait quand le binaire change : si macOS redemande une permission, c'est attendu après un changement de `mac.rs` ou de `build.rs`, pas un bug.
 
 Quand il a essayé et fermé l'app, lis son terminal (outil `read_terminal`, onglet principal ; sinon demande-lui de coller la sortie). Cherche les `panicked`, les `error`, les `warning` du build et tout message inattendu, puis demande-lui ce qu'il a vu et ce qui a été collé : un terminal propre ne dit pas ce qu'il a vu, donc attends son verdict avant de commiter. Corrige et reteste jusqu'à ce que tout soit propre.
 
