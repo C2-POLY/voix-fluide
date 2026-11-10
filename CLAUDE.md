@@ -39,7 +39,7 @@ cargo run -- --transcribe <file.wav> [language]
 (cd /tmp && VF_PILL_SHOT=<out.png> <repo>/target/debug/voix-fluide --screenshot /dev/null)
 ```
 
-Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window. Both pictures are 1120x1440 pixels (560x720 points on a Retina screen).
+Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window. The window picture is 1920x1280 pixels (960x640 points on a Retina screen); `VF_PAGE=<home|history|claude|keys|model|audio>` opens it on that page of the sidebar. The pill picture keeps its own size.
 
 ## Architecture
 
