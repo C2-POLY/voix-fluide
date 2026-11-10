@@ -300,9 +300,24 @@ fn stable_copy(exe: &std::path::Path) -> Option<std::path::PathBuf> {
         return Some(dest);
     }
     let tmp = dir.join("voix-fluide.new");
+    let identity_path = dir.join("identity.txt");
+    let remembered = std::fs::read_to_string(&identity_path).ok();
+    let remembered = remembered.as_deref().map(str::trim).filter(|h| !h.is_empty());
+    // Read the keychain's certificates only if a new identity has to be checked.
+    let mut pems: Option<String> = None;
     // A certificate can be revoked or expired: macOS then kills the program at
     // launch. Keep the first one whose signed copy really starts.
-    for identity in signing_identities() {
+    for identity in order_identities(signing_identities(), remembered) {
+        // Skip a certificate Apple revoked before trying it: launching a copy
+        // signed with it makes macOS show a malware warning.
+        if !remembered.is_some_and(|r| r.eq_ignore_ascii_case(&identity)) {
+            let all = pems.get_or_insert_with(keychain_pems);
+            if let Some(pem) = pem_for_hash(all, &identity) {
+                if certificate_revoked(&dir, pem) {
+                    continue;
+                }
+            }
+        }
         let _ = std::fs::remove_file(&tmp);
         if std::fs::copy(exe, &tmp).is_err() {
             return None;
@@ -322,6 +337,7 @@ fn stable_copy(exe: &std::path::Path) -> Option<std::path::PathBuf> {
         if starts {
             std::fs::rename(&tmp, &dest).ok()?;
             std::fs::write(&stamp_path, stamp).ok()?;
+            let _ = std::fs::write(&identity_path, &identity);
             return Some(dest);
         }
     }
@@ -340,7 +356,11 @@ fn signing_identities() -> Vec<String> {
     else {
         return Vec::new();
     };
-    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    parse_identities(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The hashes in `security find-identity` output, Developer ID first, then Apple Development.
+fn parse_identities(text: &str) -> Vec<String> {
     let mut ids = Vec::new();
     for kind in ["\"Developer ID Application", "\"Apple Development"] {
         for l in text.lines().filter(|l| l.contains(kind)) {
@@ -350,6 +370,71 @@ fn signing_identities() -> Vec<String> {
         }
     }
     ids
+}
+
+/// Put the identity that worked last time first, if it is still in the keychain.
+fn order_identities(mut ids: Vec<String>, remembered: Option<&str>) -> Vec<String> {
+    if let Some(r) = remembered {
+        if let Some(i) = ids.iter().position(|h| h.eq_ignore_ascii_case(r)) {
+            let first = ids.remove(i);
+            ids.retain(|h| !h.eq_ignore_ascii_case(r));
+            ids.insert(0, first);
+        }
+    }
+    ids
+}
+
+/// Every certificate in the keychains, each after its `SHA-1 hash:` line.
+fn keychain_pems() -> String {
+    std::process::Command::new("security")
+        .args(["find-certificate", "-a", "-Z", "-p"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default()
+}
+
+/// The PEM block that follows `SHA-1 hash: <hash>` in `security find-certificate -Z -p` output.
+fn pem_for_hash<'a>(text: &'a str, hash: &str) -> Option<&'a str> {
+    let mut rest = text;
+    while let Some(i) = rest.find("SHA-1 hash:") {
+        rest = &rest[i + "SHA-1 hash:".len()..];
+        let line = rest.lines().next().unwrap_or("").trim();
+        if !line.eq_ignore_ascii_case(hash) {
+            continue;
+        }
+        let begin = rest.find("-----BEGIN CERTIFICATE-----")?;
+        // The next hash line means this entry has no certificate block.
+        if rest.find("SHA-1 hash:").is_some_and(|n| n < begin) {
+            return None;
+        }
+        let end_mark = "-----END CERTIFICATE-----";
+        let end = rest[begin..].find(end_mark)? + begin + end_mark.len();
+        return Some(&rest[begin..end]);
+    }
+    None
+}
+
+/// Ask Apple (OCSP) whether this certificate was revoked. Any failure counts as not revoked.
+fn certificate_revoked(dir: &std::path::Path, pem: &str) -> bool {
+    let path = dir.join("cert.pem");
+    if std::fs::write(&path, format!("{pem}\n")).is_err() {
+        return false;
+    }
+    let out = std::process::Command::new("security")
+        .args(["verify-cert", "-c"])
+        .arg(&path)
+        .args(["-p", "codeSign", "-R", "ocsp", "-L"])
+        .output();
+    let _ = std::fs::remove_file(&path);
+    let Ok(out) = out else { return false };
+    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    is_revoked(&text)
+}
+
+/// True only when `security verify-cert` says the certificate was revoked.
+fn is_revoked(verify_output: &str) -> bool {
+    verify_output.contains("CSSMERR_TP_CERT_REVOKED")
 }
 
 /// Ask macOS to list Voix Fluide under Accessibility and show its prompt.
@@ -469,5 +554,84 @@ pub const PASTE_SETTLEMENT_MS: u64 = 500;
 pub fn copy_text(text: &str) {
     if let Ok(mut cb) = arboard::Clipboard::new() {
         let _ = cb.set_text(text.to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DEV_ID: &str = "1111111111111111111111111111111111111111";
+    const DEV_ID_OLD: &str = "2222222222222222222222222222222222222222";
+    const APPLE_DEV: &str = "3333333333333333333333333333333333333333";
+
+    fn ids() -> Vec<String> {
+        vec![DEV_ID.into(), DEV_ID_OLD.into(), APPLE_DEV.into()]
+    }
+
+    #[test]
+    fn parses_identities_developer_id_first() {
+        let text = format!(
+            "\n  1) {APPLE_DEV} \"Apple Development: Jane Doe (ABCDE12345)\"\n  \
+             2) {DEV_ID} \"Developer ID Application: Jane Doe (FGHIJ67890)\"\n  \
+             3) 4444444444444444444444444444444444444444 \"Mac Developer: Jane Doe (KLMNO11111)\"\n  \
+             4) {DEV_ID_OLD} \"Developer ID Application: Jane Doe (FGHIJ67890)\"\n     \
+             4 valid identities found\n"
+        );
+        assert_eq!(parse_identities(&text), ids());
+        assert!(parse_identities("     0 valid identities found\n").is_empty());
+    }
+
+    #[test]
+    fn remembered_identity_comes_first() {
+        assert_eq!(
+            order_identities(ids(), Some(APPLE_DEV)),
+            vec![APPLE_DEV.to_string(), DEV_ID.into(), DEV_ID_OLD.into()]
+        );
+        // Same hash in lower case, no duplicate left behind.
+        let order = order_identities(ids(), Some(&DEV_ID_OLD.to_lowercase()));
+        assert_eq!(order, vec![DEV_ID_OLD.to_string(), DEV_ID.into(), APPLE_DEV.into()]);
+        assert_eq!(order_identities(ids(), None), ids());
+    }
+
+    #[test]
+    fn remembered_identity_gone_from_keychain_is_ignored() {
+        let gone = "9999999999999999999999999999999999999999";
+        assert_eq!(order_identities(ids(), Some(gone)), ids());
+        assert!(order_identities(Vec::new(), Some(gone)).is_empty());
+    }
+
+    #[test]
+    fn revocation_only_from_revoked_result() {
+        let revoked = "...certificate verification failed\nCert Verify Result: CSSMERR_TP_CERT_REVOKED\n";
+        let valid = "...certificate verification successful.\n";
+        let network = "Cert Verify Result: CSSMERR_APPLETP_NETWORK_FAILURE\n";
+        let other = "Cert Verify Result: CSSMERR_TP_CERT_EXPIRED\n";
+        assert!(is_revoked(revoked));
+        assert!(!is_revoked(valid));
+        assert!(!is_revoked(network));
+        assert!(!is_revoked(other));
+        assert!(!is_revoked(""));
+    }
+
+    #[test]
+    fn finds_pem_for_hash_among_several() {
+        let pem = |body: &str| {
+            format!("-----BEGIN CERTIFICATE-----\n{body}\n-----END CERTIFICATE-----")
+        };
+        let text = format!(
+            "SHA-256 hash: AAAA\nSHA-1 hash: {DEV_ID}\n{}\n\
+             SHA-256 hash: BBBB\nSHA-1 hash: {DEV_ID_OLD}\n{}\n\
+             SHA-256 hash: CCCC\nSHA-1 hash: {APPLE_DEV}\n{}\n",
+            pem("MIIFIRST"),
+            pem("MIISECOND"),
+            pem("MIITHIRD")
+        );
+        assert_eq!(pem_for_hash(&text, DEV_ID_OLD), Some(pem("MIISECOND").as_str()));
+        assert_eq!(pem_for_hash(&text, &APPLE_DEV.to_lowercase()), Some(pem("MIITHIRD").as_str()));
+        assert_eq!(pem_for_hash(&text, "9999999999999999999999999999999999999999"), None);
+        // A hash line with no certificate block does not borrow the next one.
+        let missing = format!("SHA-1 hash: {DEV_ID}\nSHA-1 hash: {APPLE_DEV}\n{}\n", pem("MIITHIRD"));
+        assert_eq!(pem_for_hash(&missing, DEV_ID), None);
     }
 }
