@@ -63,6 +63,64 @@ impl Mode {
     }
 }
 
+/// How the pill draws the microphone level: bars, or one smoothed line.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WaveStyle {
+    Bars,
+    Line,
+}
+
+impl WaveStyle {
+    pub const ALL: [WaveStyle; 2] = [WaveStyle::Bars, WaveStyle::Line];
+    pub fn label(self) -> &'static str {
+        match self {
+            WaveStyle::Bars => "Barres",
+            WaveStyle::Line => "Ligne",
+        }
+    }
+    pub fn id(self) -> &'static str {
+        match self {
+            WaveStyle::Bars => "bars",
+            WaveStyle::Line => "line",
+        }
+    }
+    pub fn from_id(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|w| w.id() == s)
+    }
+}
+
+/// The screen the pill opens on at the start of each dictation.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OverlayScreen {
+    /// `NSScreen.mainScreen`: the screen of the active app's key window.
+    Active,
+    /// The screen under the mouse pointer.
+    Mouse,
+    /// `NSScreen.screens[0]`: the screen with the menu bar.
+    Primary,
+}
+
+impl OverlayScreen {
+    pub const ALL: [OverlayScreen; 3] = [OverlayScreen::Active, OverlayScreen::Mouse, OverlayScreen::Primary];
+    pub fn label(self) -> &'static str {
+        match self {
+            OverlayScreen::Active => "Écran de l'app active",
+            OverlayScreen::Mouse => "Écran de la souris",
+            OverlayScreen::Primary => "Écran principal",
+        }
+    }
+    pub fn id(self) -> &'static str {
+        match self {
+            OverlayScreen::Active => "active",
+            OverlayScreen::Mouse => "mouse",
+            OverlayScreen::Primary => "primary",
+        }
+    }
+    pub fn from_id(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|o| o.id() == s)
+    }
+}
+
 pub const LANGUAGES: [(&str, &str); 8] = [
     ("auto", "Détection automatique"),
     ("fr", "Français"),
@@ -93,6 +151,14 @@ pub struct Settings {
     pub overlay_top: bool,
     /// FluidVoice OverlaySize: 0 Pill, 1 Small, 2 Medium (default), 3 Large.
     pub overlay_size: u8,
+    /// Show the `m:ss` timer on the right of the pill while listening.
+    pub overlay_timer: bool,
+    /// Bars or a line for the microphone level.
+    pub overlay_wave: WaveStyle,
+    /// Show the pasted text under the pill once done (errors always show).
+    pub overlay_text: bool,
+    /// The screen the pill opens on.
+    pub overlay_screen: OverlayScreen,
     /// Mini-session key (this rebuild): records like dictation, but asks Claude Code.
     /// Always different from `key`.
     pub session_key: ShortcutKey,
@@ -117,6 +183,10 @@ impl Default for Settings {
             overlay: true,
             overlay_top: false,
             overlay_size: 2,
+            overlay_timer: true,
+            overlay_wave: WaveStyle::Bars,
+            overlay_text: true,
+            overlay_screen: OverlayScreen::Active,
             session_key: mac::SHORTCUTS[1],
             repo_root: "~/Documents/c2-poly/repo".into(),
             speak: true,
@@ -175,6 +245,18 @@ impl Settings {
         if let Some(n) = v["overlay_size"].as_u64() {
             s.overlay_size = n.min(3) as u8;
         }
+        if let Some(b) = v["overlay_timer"].as_bool() {
+            s.overlay_timer = b;
+        }
+        if let Some(w) = v["overlay_wave"].as_str().and_then(WaveStyle::from_id) {
+            s.overlay_wave = w;
+        }
+        if let Some(b) = v["overlay_text"].as_bool() {
+            s.overlay_text = b;
+        }
+        if let Some(o) = v["overlay_screen"].as_str().and_then(OverlayScreen::from_id) {
+            s.overlay_screen = o;
+        }
         if let Some(code) = v["session_key"].as_u64() {
             if let Some(k) = mac::SHORTCUTS.iter().find(|k| k.code as u64 == code) {
                 s.session_key = *k;
@@ -211,6 +293,10 @@ impl Settings {
             "overlay": self.overlay,
             "overlay_top": self.overlay_top,
             "overlay_size": self.overlay_size,
+            "overlay_timer": self.overlay_timer,
+            "overlay_wave": self.overlay_wave.id(),
+            "overlay_text": self.overlay_text,
+            "overlay_screen": self.overlay_screen.id(),
             "session_key": self.session_key.code,
             "repo_root": self.repo_root,
             "speak": self.speak,
@@ -984,5 +1070,34 @@ mod tests {
         let same = Settings::from_json(&serde_json::json!({"key": 54, "session_key": 54}));
         assert_eq!(same.key.code, 54);
         assert_ne!(same.session_key, same.key);
+    }
+
+    #[test]
+    fn pill_fields_default_when_missing() {
+        let d = Settings::from_json(&serde_json::json!({"overlay": true, "overlay_top": true, "overlay_size": 1}));
+        assert!(d.overlay_top);
+        assert_eq!(d.overlay_size, 1);
+        assert!(d.overlay_timer);
+        assert_eq!(d.overlay_wave, WaveStyle::Bars);
+        assert!(d.overlay_text);
+        assert_eq!(d.overlay_screen, OverlayScreen::Active);
+    }
+
+    #[test]
+    fn pill_fields_round_trip() {
+        for screen in [OverlayScreen::Mouse, OverlayScreen::Primary] {
+            let s = Settings {
+                overlay_timer: false,
+                overlay_wave: WaveStyle::Line,
+                overlay_text: false,
+                overlay_screen: screen,
+                ..Settings::default()
+            };
+            let back = Settings::from_json(&s.to_json());
+            assert!(!back.overlay_timer);
+            assert_eq!(back.overlay_wave, WaveStyle::Line);
+            assert!(!back.overlay_text);
+            assert_eq!(back.overlay_screen, screen);
+        }
     }
 }

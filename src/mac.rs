@@ -1,5 +1,6 @@
 //! Small macOS helpers: reading a key's state, posting Cmd+V, permissions.
 
+use crate::engine::OverlayScreen;
 use std::ffi::c_void;
 
 const HID_SYSTEM_STATE: i32 = 1;
@@ -152,11 +153,18 @@ struct NSRect {
     h: f64,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct NSPoint {
+    x: f64,
+    y: f64,
+}
+
 /// Top-left corner (in points, origin at the top-left of the primary screen) for a
-/// `w`×`h` floating pill centred on the screen the person is working on, `offset`
-/// points from its bottom (or top) edge, inside the area not covered by the Dock
-/// or the menu bar. Must be called on the main thread.
-pub fn overlay_position(w: f32, h: f32, offset: f32, top: bool) -> Option<(f32, f32)> {
+/// `w`×`h` floating pill centred on the chosen screen, `offset` points from its
+/// bottom (or top) edge, inside the area not covered by the Dock or the menu bar.
+/// Must be called on the main thread.
+pub fn overlay_position(w: f32, h: f32, offset: f32, top: bool, screen: OverlayScreen) -> Option<(f32, f32)> {
     unsafe {
         let cls = objc_getClass(c"NSScreen".as_ptr());
         if cls.is_null() {
@@ -168,17 +176,48 @@ pub fn overlay_position(w: f32, h: f32, offset: f32, top: bool) -> Option<(f32, 
             std::mem::transmute(objc_msgSend as *const ());
         let msg_idx: extern "C" fn(*mut c_void, *mut c_void, usize) -> *mut c_void =
             std::mem::transmute(objc_msgSend as *const ());
+        let msg_count: extern "C" fn(*mut c_void, *mut c_void) -> usize =
+            std::mem::transmute(objc_msgSend as *const ());
+        let msg_point: extern "C" fn(*mut c_void, *mut c_void) -> NSPoint =
+            std::mem::transmute(objc_msgSend as *const ());
         let main = msg_obj(cls, sel_registerName(c"mainScreen".as_ptr()));
         let screens = msg_obj(cls, sel_registerName(c"screens".as_ptr()));
         if main.is_null() || screens.is_null() {
             return None;
         }
-        let primary = msg_idx(screens, sel_registerName(c"objectAtIndex:".as_ptr()), 0);
+        let object_at = sel_registerName(c"objectAtIndex:".as_ptr());
+        let frame = sel_registerName(c"frame".as_ptr());
+        let primary = msg_idx(screens, object_at, 0);
         if primary.is_null() {
             return None;
         }
-        let primary_h = msg_rect(primary, sel_registerName(c"frame".as_ptr())).h;
-        let vf = msg_rect(main, sel_registerName(c"visibleFrame".as_ptr()));
+        let chosen = match screen {
+            OverlayScreen::Active => main,
+            OverlayScreen::Primary => primary,
+            OverlayScreen::Mouse => {
+                let event = objc_getClass(c"NSEvent".as_ptr());
+                let mouse = if event.is_null() {
+                    None
+                } else {
+                    Some(msg_point(event, sel_registerName(c"mouseLocation".as_ptr())))
+                };
+                let count = msg_count(screens, sel_registerName(c"count".as_ptr()));
+                mouse
+                    .and_then(|p| {
+                        (0..count).map(|i| msg_idx(screens, object_at, i)).find(|s| {
+                            if s.is_null() {
+                                return false;
+                            }
+                            let f = msg_rect(*s, frame);
+                            p.x >= f.x && p.x < f.x + f.w && p.y >= f.y && p.y < f.y + f.h
+                        })
+                    })
+                    // Off every screen (a rounding at an edge): fall back to the active one.
+                    .unwrap_or(main)
+            }
+        };
+        let primary_h = msg_rect(primary, frame).h;
+        let vf = msg_rect(chosen, sel_registerName(c"visibleFrame".as_ptr()));
         let x = vf.x + (vf.w - w as f64) / 2.0;
         // Cocoa measures from the bottom of the primary screen; winit from its top.
         let bottom_y = if top {

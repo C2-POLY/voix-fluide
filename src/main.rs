@@ -6,7 +6,7 @@ mod tray;
 mod whisper;
 
 use egui::{Align, Color32, CornerRadius, FontId, Layout, Margin, RichText, Sense, Stroke, Vec2};
-use engine::{Cmd, Handles, Job, MiniSession, Mode, ModelState, Phase, SessionState, Settings, SharedRef, Target, LANGUAGES};
+use engine::{Cmd, Handles, Job, MiniSession, Mode, ModelState, OverlayScreen, Phase, SessionState, Settings, SharedRef, Target, WaveStyle, LANGUAGES};
 use std::path::PathBuf;
 use whisper::ModelSize;
 
@@ -144,6 +144,7 @@ enum Page {
     Claude,
     Keys,
     Model,
+    Pill,
     Audio,
 }
 
@@ -155,6 +156,7 @@ impl Page {
             Ok("claude") => Page::Claude,
             Ok("keys") => Page::Keys,
             Ok("model") => Page::Model,
+            Ok("pill") => Page::Pill,
             Ok("audio") => Page::Audio,
             _ => Page::Home,
         }
@@ -293,6 +295,54 @@ const PILL_SIZE_NAMES: [&str; 4] = ["Pastille", "Petite", "Moyenne", "Grande"];
 
 fn pill_layout(size: u8) -> PillLayout {
     PILL_LAYOUTS[(size as usize).min(3)]
+}
+
+/// The pill's look chosen in the settings, passed to `draw_pill` so the floating pill,
+/// the preview on the Pastille page and `VF_PILL_SHOT` draw it the same way.
+#[derive(Clone, Copy)]
+struct PillStyle {
+    wave: WaveStyle,
+    timer: bool,
+}
+
+impl PillStyle {
+    fn of(settings: &Settings) -> Self {
+        PillStyle { wave: settings.overlay_wave, timer: settings.overlay_timer }
+    }
+}
+
+/// How long each state stays in the preview of the Pastille page.
+const PREVIEW_STEP_S: f64 = 2.5;
+const PREVIEW_TEXT: &str = "Bonjour, ceci est un essai de dictée vocale. Le texte apparaît là où se trouve le curseur.";
+const PREVIEW_CLAUDE: &str = "voix-fluide · terminé\nLe seuil de 0,4 seconde est TAP_HOLD_THRESHOLD dans engine.rs.";
+
+/// A smoothed line through `heights` (one per bar, centred on `x0 + i * step`):
+/// the points swing above and below `cy` in turn, like a sound wave, and the line
+/// starts and ends on `cy` half a step outside the first and last points.
+fn wave_line(p: &egui::Painter, x0: f32, step: f32, cy: f32, heights: &[f32], stroke: impl Into<egui::epaint::PathStroke>) {
+    if heights.is_empty() {
+        return;
+    }
+    let mut ctrl = vec![egui::pos2(x0 - step / 2.0, cy)];
+    for (i, h) in heights.iter().enumerate() {
+        let sign = if i % 2 == 0 { -1.0 } else { 1.0 };
+        ctrl.push(egui::pos2(x0 + i as f32 * step, cy + sign * h / 2.0));
+    }
+    ctrl.push(egui::pos2(x0 + (heights.len() as f32 - 0.5) * step, cy));
+    // Catmull-Rom through the control points, 8 samples per segment.
+    let at = |i: isize| ctrl[i.clamp(0, ctrl.len() as isize - 1) as usize].to_vec2();
+    let mut pts = Vec::with_capacity(ctrl.len() * 8);
+    for i in 0..ctrl.len() as isize - 1 {
+        let (p0, p1, p2, p3) = (at(i - 1), at(i), at(i + 1), at(i + 2));
+        for k in 0..8 {
+            let t = k as f32 / 8.0;
+            let (t2, t3) = (t * t, t * t * t);
+            let v = (p1 * 2.0 + (p2 - p0) * t + (p0 * 2.0 - p1 * 5.0 + p2 * 4.0 - p3) * t2 + (p1 * 3.0 - p0 - p2 * 3.0 + p3) * t3) * 0.5;
+            pts.push(v.to_pos2());
+        }
+    }
+    pts.push(*ctrl.last().unwrap());
+    p.add(egui::Shape::line(pts, stroke));
 }
 
 impl App {
@@ -620,6 +670,8 @@ impl App {
                 Some(m) => Some(m.clone()),
                 // A question for Claude: the mini-session's state takes over.
                 None if target == Target::Session => None,
+                // The text is hidden: keep the "Collé" header alone.
+                None if !last.is_empty() && !settings.overlay_text => Some(String::new()),
                 None if !last.is_empty() => {
                     let n = last.chars().count();
                     Some(if n > OVERLAY_PREVIEW_CHARS {
@@ -634,7 +686,7 @@ impl App {
         if phase != Phase::Idle && self.prev_phase == Phase::Idle {
             // New dictation: place the pill on the screen being used right now.
             let l = pill_layout(settings.overlay_size);
-            self.overlay_pos = mac::overlay_position(l.overlay_width, l.overlay_height, OVERLAY_OFFSET, settings.overlay_top)
+            self.overlay_pos = mac::overlay_position(l.overlay_width, l.overlay_height, OVERLAY_OFFSET, settings.overlay_top, settings.overlay_screen)
                 .map(|(x, y)| egui::pos2(x, y));
             self.overlay_note = None;
         }
@@ -663,12 +715,13 @@ impl App {
         let has_message = message.is_some();
         let layout = pill_layout(settings.overlay_size);
         let top = settings.overlay_top;
+        let style = PillStyle::of(settings);
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("voix-fluide-pill"), builder, |ctx, _| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(Color32::TRANSPARENT))
                 .show(ctx, |ui| {
                     let claude = claude.as_ref().map(|(t, tone)| (t.as_str(), *tone));
-                    draw_pill(ui, ui.max_rect(), layout, top, phase, levels, elapsed, note.as_deref(), has_message, claude, now);
+                    draw_pill(ui, ui.max_rect(), layout, style, top, phase, levels, elapsed, note.as_deref(), has_message, claude, now);
                 });
         });
     }
@@ -677,12 +730,14 @@ impl App {
 /// The pill's look, from FluidVoice's layout table: a rounded panel `container_width`
 /// wide hugging the screen edge, the waveform, a small state label and time, and the
 /// text preview (last 150 characters) when the size shows one. With `claude` and no
-/// dictation under way, it shows that mini-session instead.
+/// dictation under way, it shows that mini-session instead. An empty `note` shows
+/// the "Collé" header without the text.
 #[allow(clippy::too_many_arguments)]
-fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase: Phase, levels: &[f32], elapsed: Option<f32>, note: Option<&str>, has_message: bool, claude: Option<(&str, ClaudeTone)>, now: f64) {
+fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, style: PillStyle, top: bool, phase: Phase, levels: &[f32], elapsed: Option<f32>, note: Option<&str>, has_message: bool, claude: Option<(&str, ClaudeTone)>, now: f64) {
     let p = ui.painter();
     let claude = claude.filter(|_| phase == Phase::Idle);
     let pill_mode = !l.shows_preview;
+    let text = note.filter(|n| !n.is_empty());
 
     // Text under the header, as today: it sets the pill's height, so the height never changes.
     let sizing: Option<String> = if pill_mode {
@@ -693,7 +748,7 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
             Phase::Transcribing => Some("Transcription…".to_string()),
             Phase::Idle => match claude {
                 Some((t, _)) => Some(t.to_string()),
-                None => note.map(str::to_string),
+                None => text.map(str::to_string),
             },
         }
     };
@@ -727,10 +782,18 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
         Phase::Recording => {
             let bx0 = rect.center().x - total / 2.0;
             let start = levels.len().saturating_sub(l.bar_count);
-            for i in 0..l.bar_count {
-                let lvl = levels.get(start + i).copied().unwrap_or(0.0).clamp(0.0, 1.0);
-                let h = l.min_bar + lvl * (l.max_bar - l.min_bar);
-                bar(bx0 + i as f32 * (l.bar_width + l.bar_spacing) + l.bar_width / 2.0, wave_cy, l.bar_width, h, Color32::WHITE, bar_radius);
+            let heights: Vec<f32> = (0..l.bar_count)
+                .map(|i| l.min_bar + levels.get(start + i).copied().unwrap_or(0.0).clamp(0.0, 1.0) * (l.max_bar - l.min_bar))
+                .collect();
+            match style.wave {
+                WaveStyle::Bars => {
+                    for (i, h) in heights.iter().enumerate() {
+                        bar(bx0 + i as f32 * (l.bar_width + l.bar_spacing) + l.bar_width / 2.0, wave_cy, l.bar_width, *h, Color32::WHITE, bar_radius);
+                    }
+                }
+                WaveStyle::Line => {
+                    wave_line(p, bx0 + l.bar_width / 2.0, l.bar_width + l.bar_spacing, wave_cy, &heights, Stroke::new(2.0_f32, Color32::WHITE));
+                }
             }
             if l.shows_mode_label && !pill_mode {
                 // The logo's ending: a flat dash, then the blue caret.
@@ -749,7 +812,9 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
                     p.text(egui::pos2(lx + 15.0, wave_cy), egui::Align2::LEFT_CENTER, "Écoute", FontId::proportional(l.mode_font), MUTED);
                 }
                 let secs = elapsed.unwrap_or(0.0) as u32;
-                p.text(egui::pos2(rect.right() - l.h_padding, wave_cy), egui::Align2::RIGHT_CENTER, format!("{}:{:02}", secs / 60, secs % 60), FontId::monospace(l.mode_font), MUTED);
+                if style.timer {
+                    p.text(egui::pos2(rect.right() - l.h_padding, wave_cy), egui::Align2::RIGHT_CENTER, format!("{}:{:02}", secs / 60, secs % 60), FontId::monospace(l.mode_font), MUTED);
+                }
             }
         }
         Phase::Transcribing => {
@@ -759,10 +824,25 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
             let inline = label.as_ref().is_some_and(|g| total + gap + g.size().x <= l.container_width - 2.0 * l.h_padding);
             let group_w = total + label.as_ref().filter(|_| inline).map_or(0.0, |g| gap + g.size().x);
             let (cy, bx0) = if inline { (rect.center().y, rect.center().x - group_w / 2.0) } else { (wave_cy, rect.center().x - total / 2.0) };
-            for i in 0..l.bar_count {
-                let k = wave(i, l.bar_count);
-                let h = l.min_bar + (0.25 + 0.75 * k) * (l.max_bar - l.min_bar) * 0.8;
-                bar(bx0 + i as f32 * (l.bar_width + l.bar_spacing) + l.bar_width / 2.0, cy, l.bar_width, h, ACCENT.gamma_multiply(0.3 + 0.7 * k), bar_radius);
+            let step = l.bar_width + l.bar_spacing;
+            match style.wave {
+                WaveStyle::Bars => {
+                    for i in 0..l.bar_count {
+                        let k = wave(i, l.bar_count);
+                        let h = l.min_bar + (0.25 + 0.75 * k) * (l.max_bar - l.min_bar) * 0.8;
+                        bar(bx0 + i as f32 * step + l.bar_width / 2.0, cy, l.bar_width, h, ACCENT.gamma_multiply(0.3 + 0.7 * k), bar_radius);
+                    }
+                }
+                WaveStyle::Line => {
+                    let heights: Vec<f32> = (0..l.bar_count).map(|i| l.min_bar + (0.25 + 0.75 * wave(i, l.bar_count)) * (l.max_bar - l.min_bar) * 0.8).collect();
+                    // The same travelling bump as the bars, read along the line.
+                    let (x0, n, pos) = (bx0 + l.bar_width / 2.0, l.bar_count as f32, (now as f32 * 2.2) % (l.bar_count as f32 + 3.0) - 1.5);
+                    let color = move |_: egui::Rect, q: egui::Pos2| {
+                        let d = ((q.x - x0) / step).clamp(-0.5, n - 0.5) - pos;
+                        ACCENT.gamma_multiply(0.3 + 0.7 * (-(d * d) / 2.0).exp())
+                    };
+                    wave_line(p, x0, step, cy, &heights, egui::epaint::PathStroke::new_uv(2.0_f32, color));
+                }
             }
             if let Some(g) = label {
                 let pos = if inline {
@@ -792,7 +872,7 @@ fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase:
                     };
                     (body, TEXT)
                 }
-                None => (note.map(str::to_string), if has_message { Color32::from_rgb(0xFF, 0xE2, 0xA8) } else { TEXT }),
+                None => (text.map(str::to_string), if has_message { Color32::from_rgb(0xFF, 0xE2, 0xA8) } else { TEXT }),
             };
             let cy = wave_cy;
             if let Some((t, tone)) = claude {
@@ -925,19 +1005,34 @@ impl eframe::App for App {
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(Color32::TRANSPARENT))
                 .show(ctx, |ui| {
-                    let mut y = ui.max_rect().top() + 24.0;
+                    // Two columns: bars on the left, the line wave on the right.
                     let done = "voix-fluide · terminé\nLe seuil de 0,4 seconde est TAP_HOLD_THRESHOLD dans engine.rs.";
-                    for (size, ph, note, claude) in [
-                        (2u8, Phase::Recording, None, None),
-                        (2u8, Phase::Idle, Some("Bonjour, ceci est un essai de dictée vocale. Le texte doit apparaître dans la fenêtre."), None),
-                        (1u8, Phase::Transcribing, None, None),
-                        (2u8, Phase::Idle, None, Some((done, ClaudeTone::Done))),
-                        (0u8, Phase::Recording, None, None),
-                    ] {
-                        let l = pill_layout(size);
-                        let r = egui::Rect::from_min_size(egui::pos2(ui.max_rect().center().x - l.overlay_width / 2.0, y), Vec2::new(l.overlay_width, l.overlay_height));
-                        draw_pill(ui, r, l, false, ph, &levels, elapsed, note, false, claude, now);
-                        y += l.overlay_height + 12.0;
+                    let bars = PillStyle { wave: WaveStyle::Bars, timer: true };
+                    let line = PillStyle { wave: WaveStyle::Line, timer: true };
+                    let full = ui.max_rect();
+                    for (column, rows) in [
+                        [
+                            (2u8, bars, Phase::Recording, None, None),
+                            (2u8, bars, Phase::Idle, Some("Bonjour, ceci est un essai de dictée vocale. Le texte doit apparaître dans la fenêtre."), None),
+                            (1u8, bars, Phase::Transcribing, None, None),
+                        ],
+                        [
+                            (2u8, line, Phase::Recording, None, None),
+                            (2u8, bars, Phase::Idle, None, Some((done, ClaudeTone::Done))),
+                            (0u8, bars, Phase::Recording, None, None),
+                        ],
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        let cx = full.left() + full.width() * (0.25 + 0.5 * column as f32);
+                        let mut y = full.top() + 24.0;
+                        for (size, style, ph, note, claude) in rows {
+                            let l = pill_layout(size);
+                            let r = egui::Rect::from_min_size(egui::pos2(cx - l.overlay_width / 2.0, y), Vec2::new(l.overlay_width, l.overlay_height));
+                            draw_pill(ui, r, l, style, false, ph, &levels, elapsed, note, false, claude, now);
+                            y += l.overlay_height + 12.0;
+                        }
                     }
                 });
             self.screenshot_step(ctx);
@@ -1056,7 +1151,7 @@ impl eframe::App for App {
                 }
                 ui.add_space(10.0);
                 caps(ui, "RÉGLAGES");
-                for (page, label) in [(Page::Keys, "Raccourcis"), (Page::Model, "Modèle et langue"), (Page::Audio, "Micro et sortie")] {
+                for (page, label) in [(Page::Keys, "Raccourcis"), (Page::Model, "Modèle et langue"), (Page::Pill, "Pastille"), (Page::Audio, "Micro et collage")] {
                     if nav_item(ui, label, self.page == page, None).clicked() {
                         self.page = page;
                     }
@@ -1415,8 +1510,79 @@ impl eframe::App for App {
                             });
                         }
 
+                        Page::Pill => {
+                            page_header(ui, "Pastille", "L'indicateur qui flotte au bord de l'écran pendant la dictée.");
+                            caps(ui, "APERÇU");
+                            card(ui, |ui| {
+                                if !settings.overlay {
+                                    ui.multiply_opacity(0.35);
+                                }
+                                let l = pill_layout(settings.overlay_size);
+                                let (area, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), l.overlay_height), Sense::hover());
+                                let canvas = egui::Rect::from_center_size(area.center(), Vec2::new(l.overlay_width.min(area.width()), l.overlay_height));
+                                // Simulated states and wave: no microphone, worker or `Shared` involved.
+                                let (ph, note, claude) = match (now / PREVIEW_STEP_S) as u64 % 4 {
+                                    0 => (Phase::Recording, None, None),
+                                    1 => (Phase::Transcribing, None, None),
+                                    2 => (Phase::Idle, Some(if settings.overlay_text { PREVIEW_TEXT } else { "" }), None),
+                                    _ => (Phase::Idle, None, Some((PREVIEW_CLAUDE, ClaudeTone::Done))),
+                                };
+                                let levels: Vec<f32> = (0..engine::LEVEL_BARS)
+                                    .map(|i| {
+                                        let t = now as f32;
+                                        (0.5 + 0.4 * (t * 5.0 + i as f32 * 0.8).sin() * (t * 1.7 + i as f32 * 0.3).cos()).clamp(0.0, 1.0)
+                                    })
+                                    .collect();
+                                let elapsed = Some((now % PREVIEW_STEP_S) as f32 + 4.0);
+                                draw_pill(ui, canvas, l, PillStyle::of(&settings), settings.overlay_top, ph, &levels, elapsed, note, false, claude, now);
+                            });
+                            ui.add_space(12.0);
+                            caps(ui, "RÉGLAGES");
+                            card(ui, |ui| {
+                                setting_row(ui, "Afficher la pastille", "Un indicateur pendant la dictée, où que vous soyez.", |ui| {
+                                    switch(ui, &mut settings.overlay);
+                                });
+                                ui.add_enabled_ui(settings.overlay, |ui| {
+                                    row_separator(ui);
+                                    // The controls run right to left: add the choices in reverse.
+                                    setting_row(ui, "Position", "", |ui| {
+                                        ui.selectable_value(&mut settings.overlay_top, true, "En haut de l'écran");
+                                        ui.selectable_value(&mut settings.overlay_top, false, "En bas de l'écran");
+                                    });
+                                    row_separator(ui);
+                                    setting_row(ui, "Taille", "", |ui| {
+                                        for (i, name) in PILL_SIZE_NAMES.iter().enumerate().rev() {
+                                            ui.selectable_value(&mut settings.overlay_size, i as u8, *name);
+                                        }
+                                    });
+                                    row_separator(ui);
+                                    setting_row(ui, "Écran", "Choisi au début de chaque dictée.", |ui| {
+                                        egui::ComboBox::from_id_salt("pill_screen").width(200.0).selected_text(settings.overlay_screen.label()).show_ui(ui, |ui| {
+                                            for o in OverlayScreen::ALL {
+                                                ui.selectable_value(&mut settings.overlay_screen, o, o.label());
+                                            }
+                                        });
+                                    });
+                                    row_separator(ui);
+                                    setting_row(ui, "Onde", "", |ui| {
+                                        for w in WaveStyle::ALL.into_iter().rev() {
+                                            ui.selectable_value(&mut settings.overlay_wave, w, w.label());
+                                        }
+                                    });
+                                    row_separator(ui);
+                                    setting_row(ui, "Chrono", "La durée de l'écoute, à droite de la pastille.", |ui| {
+                                        switch(ui, &mut settings.overlay_timer);
+                                    });
+                                    row_separator(ui);
+                                    setting_row(ui, "Montrer le texte collé", "Sous la pastille, une fois la dictée finie. Les erreurs s'affichent toujours.", |ui| {
+                                        switch(ui, &mut settings.overlay_text);
+                                    });
+                                });
+                            });
+                        }
+
                         Page::Audio => {
-                            page_header(ui, "Micro et sortie", "Quel micro écoute, et ce qui arrive une fois le texte transcrit.");
+                            page_header(ui, "Micro et collage", "Quel micro écoute, et ce qui arrive une fois le texte transcrit.");
                             caps(ui, "MICRO");
                             card(ui, |ui| {
                                 let default_label = match &self.default_device {
@@ -1452,7 +1618,7 @@ impl eframe::App for App {
                                 });
                             });
                             ui.add_space(12.0);
-                            caps(ui, "SORTIE");
+                            caps(ui, "COLLAGE");
                             card(ui, |ui| {
                                 setting_row(ui, "Coller dans l'application active", "", |ui| {
                                     switch(ui, &mut settings.paste);
@@ -1464,21 +1630,6 @@ impl eframe::App for App {
                                 row_separator(ui);
                                 setting_row(ui, "Sons de début et de fin", "", |ui| {
                                     switch(ui, &mut settings.sounds);
-                                });
-                                row_separator(ui);
-                                setting_row(ui, "Pastille flottante", "Un indicateur pendant la dictée, où que vous soyez.", |ui| {
-                                    switch(ui, &mut settings.overlay);
-                                });
-                                ui.add_enabled_ui(settings.overlay, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.selectable_value(&mut settings.overlay_top, false, "En bas de l'écran");
-                                        ui.selectable_value(&mut settings.overlay_top, true, "En haut de l'écran");
-                                    });
-                                    ui.horizontal(|ui| {
-                                        for (i, name) in PILL_SIZE_NAMES.iter().enumerate() {
-                                            ui.selectable_value(&mut settings.overlay_size, i as u8, *name);
-                                        }
-                                    });
                                 });
                             });
                             ui.add_space(12.0);
@@ -1521,6 +1672,10 @@ impl eframe::App for App {
             || settings.overlay != before.overlay
             || settings.overlay_top != before.overlay_top
             || settings.overlay_size != before.overlay_size
+            || settings.overlay_timer != before.overlay_timer
+            || settings.overlay_wave != before.overlay_wave
+            || settings.overlay_text != before.overlay_text
+            || settings.overlay_screen != before.overlay_screen
             || settings.session_key != before.session_key
             || settings.repo_root != before.repo_root
             || settings.speak != before.speak
@@ -1530,6 +1685,9 @@ impl eframe::App for App {
         }
 
         if phase != Phase::Idle {
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        } else if self.page == Page::Pill {
+            // The preview on the Pastille page moves on its own.
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         } else if sessions.iter().any(|s| s.state == SessionState::Running) {
             // Keeps the elapsed time of running mini-sessions moving.
