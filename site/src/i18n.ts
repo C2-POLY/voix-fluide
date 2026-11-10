@@ -5,6 +5,7 @@ export type Copy = {
   masthead: { issue: string; date: string; tag: string }
   nav: { how: string; local: string; pill: string; claude: string; try: string }
   hero: { lines: string[]; lede: string; keys: string[]; sentences: string[]; cue: string }
+  download: { label: string; meta: string; firstOpen: string }
   how: {
     kicker: string
     title: string
@@ -52,7 +53,7 @@ export type Copy = {
 export const copy: Record<Lang, Copy> = {
   fr: {
     htmlTitle: 'Voix Fluide · dictée vocale pour macOS',
-    masthead: { issue: 'N° 0.3', date: 'Novembre 2026', tag: 'Dictée vocale pour macOS' },
+    masthead: { issue: 'N° 0.4', date: 'Novembre 2026', tag: 'Dictée vocale pour macOS' },
     nav: { how: 'Le geste', local: 'Le lieu', pill: 'La pastille', claude: 'Claude Code', try: 'L’essayer' },
     hero: {
       lines: ['Parlez.', 'Le texte', 's’écrit.'],
@@ -64,6 +65,11 @@ export const copy: Record<Lang, Copy> = {
       ],
       cue: 'Faites défiler',
       keys: ['Appuyez sur [⌥ droite] pour dicter.', 'Maintenez [⌘ droite] pour demander à Claude Code.'],
+    },
+    download: {
+      label: 'Télécharger pour Mac',
+      meta: 'Apple Silicon · .dmg',
+      firstOpen: 'Glissez Voix Fluide dans Applications. Au premier lancement, macOS la bloque : Réglages Système › Confidentialité et sécurité › « Ouvrir quand même ».',
     },
     how: {
       kicker: 'I. Le geste',
@@ -128,7 +134,7 @@ export const copy: Record<Lang, Copy> = {
     tryIt: {
       kicker: 'V. L’essayer',
       title: 'Trois commandes.',
-      body: 'Voix Fluide n’est pas encore distribuée : on la compile depuis les sources. Il faut macOS et rustup ; la bonne version de Rust s’installe d’elle-même.',
+      body: 'Plutôt que le .dmg, vous pouvez la compiler depuis les sources. Il faut macOS et rustup ; la bonne version de Rust s’installe d’elle-même.',
       after: [
         'Au premier lancement, macOS demande le micro, puis l’accessibilité pour pouvoir coller.',
         'Le modèle choisi se télécharge une seule fois.',
@@ -147,7 +153,7 @@ export const copy: Record<Lang, Copy> = {
   },
   en: {
     htmlTitle: 'Voix Fluide · voice dictation for macOS',
-    masthead: { issue: 'No. 0.3', date: 'November 2026', tag: 'Voice dictation for macOS' },
+    masthead: { issue: 'No. 0.4', date: 'November 2026', tag: 'Voice dictation for macOS' },
     nav: { how: 'The gesture', local: 'The place', pill: 'The pill', claude: 'Claude Code', try: 'Try it' },
     hero: {
       lines: ['Speak.', 'The text', 'writes itself.'],
@@ -159,6 +165,11 @@ export const copy: Record<Lang, Copy> = {
       ],
       cue: 'Scroll',
       keys: ['Press [⌥ Right] to dictate.', 'Hold [⌘ Right] to ask Claude Code.'],
+    },
+    download: {
+      label: 'Download for Mac',
+      meta: 'Apple Silicon · .dmg',
+      firstOpen: 'Drag Voix Fluide to Applications. On first launch macOS blocks it: System Settings › Privacy & Security › “Open Anyway”.',
     },
     how: {
       kicker: 'I. The gesture',
@@ -223,7 +234,7 @@ export const copy: Record<Lang, Copy> = {
     tryIt: {
       kicker: 'V. Try it',
       title: 'Three commands.',
-      body: 'Voix Fluide is not distributed yet: you build it from source. You need macOS and rustup; the right Rust version installs itself.',
+      body: 'Instead of the .dmg, you can build it from source. You need macOS and rustup; the right Rust version installs itself.',
       after: [
         'On first launch, macOS asks for the microphone, then for Accessibility so it can paste.',
         'The model you pick downloads once.',

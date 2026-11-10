@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="460" viewBox="0 0 660 460">
+<!-- The .dmg window background, in the app's night palette (src/main.rs, site/src/index.css).
+     Finder draws the two icons on top, the app centred at (160, 215) and Applications at (500, 215)
+     (scripts/dmg-settings.py), and writes their names in black whatever the mode: the names sit on
+     the light foot of a tile, centred 80 points under each icon. Between them, the logo's wave calms
+     into a straight line and ends in an arrow. The window shows the top 660x420; the 40 points below
+     only fill what a taller title bar would leave uncovered.
+     scripts/dmg-background.sh renders it to background.png and background@2x.png. -->
+<defs>
+  <linearGradient id="night" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#0b0f1a"/>
+    <stop offset="1" stop-color="#0c1a33"/>
+  </linearGradient>
+  <radialGradient id="halo" cx="330" cy="215" r="300" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#1a75ff" stop-opacity="0.22"/>
+    <stop offset="1" stop-color="#1a75ff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="glow" x="-20%" y="-100%" width="140%" height="300%"><feGaussianBlur stdDeviation="5"/></filter>
+  <path id="wave" d="M252 215 Q260 175 268 215 Q276 248 284 215 Q292 191 300 215 Q308 232 316 215 Q324 205 332 215 Q340 221 348 215 L 398 215"/>
+</defs>
+<rect width="660" height="460" fill="url(#night)"/>
+<rect width="660" height="460" fill="url(#halo)"/>
+<text x="330" y="64" text-anchor="middle" font-family="'Iowan Old Style', 'Fraunces', Georgia, serif" font-size="34" font-weight="600" letter-spacing="-0.5" fill="#f2f4f8">Voix Fluide</text>
+<text x="330" y="94" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="12" fill="#9ba3b4">Glissez l’app dans Applications · Drag the app onto Applications</text>
+<g>
+  <clipPath id="t160"><rect x="76" y="131" width="168" height="182" rx="22"/></clipPath>
+  <rect x="76" y="131" width="168" height="182" rx="22" fill="#ffffff" fill-opacity="0.05"/>
+  <rect x="76" y="283" width="168" height="30" fill="#e6e9f0" clip-path="url(#t160)"/>
+  <rect x="76.5" y="131.5" width="167" height="181" rx="21.5" fill="none" stroke="#262c3c"/>
+  <clipPath id="t500"><rect x="416" y="131" width="168" height="182" rx="22"/></clipPath>
+  <rect x="416" y="131" width="168" height="182" rx="22" fill="#ffffff" fill-opacity="0.05"/>
+  <rect x="416" y="283" width="168" height="30" fill="#e6e9f0" clip-path="url(#t500)"/>
+  <rect x="416.5" y="131.5" width="167" height="181" rx="21.5" fill="none" stroke="#262c3c"/>
+</g>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <use href="#wave" stroke="#1a75ff" stroke-width="9" opacity="0.55" filter="url(#glow)"/>
+  <use href="#wave" stroke="#f2f4f8" stroke-width="4"/>
+  <path d="M392 203 L 406 215 L 392 227" stroke="#1a75ff" stroke-width="4.5"/>
+</g>
+<text x="330" y="364" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11" fill="#9ba3b4">Première ouverture : Réglages Système › Confidentialité et sécurité › Ouvrir quand même</text>
+<text x="330" y="383" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11" fill="#9ba3b4" fill-opacity="0.7">First open: System Settings › Privacy &amp; Security › Open Anyway · Apple Silicon</text>
+</svg>

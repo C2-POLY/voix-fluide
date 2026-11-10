@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The Info.plist of Voix Fluide.app. scripts/bundle.sh copies it into the bundle and
+     sets CFBundleShortVersionString and CFBundleVersion from Cargo.toml. The bundle id
+     and the two usage reasons are the ones build.rs embeds in the binary: keep them equal. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Voix Fluide</string>
+	<key>CFBundleDisplayName</key>
+	<string>Voix Fluide</string>
+	<key>CFBundleExecutable</key>
+	<string>voix-fluide</string>
+	<key>CFBundleIdentifier</key>
+	<string>app.voixfluide.dictee</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>icon</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>0.0.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Voix Fluide utilise le micro pour transcrire votre voix en texte, entièrement sur ce Mac.</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Voix Fluide colle le texte dicté dans l'application active.</string>
+</dict>
+</plist>

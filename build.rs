@@ -2,6 +2,7 @@
 // for the microphone (without it the microphone silently gives silence).
 fn main() {
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("Info.plist");
+    let version = std::env::var("CARGO_PKG_VERSION").unwrap();
     let plist = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -9,12 +10,13 @@ fn main() {
     <key>CFBundleIdentifier</key><string>app.voixfluide.dictee</string>
     <key>CFBundleName</key><string>Voix Fluide</string>
     <key>CFBundleDisplayName</key><string>Voix Fluide</string>
-    <key>CFBundleShortVersionString</key><string>0.3.0</string>
+    <key>CFBundleShortVersionString</key><string>{version}</string>
     <key>NSMicrophoneUsageDescription</key><string>Voix Fluide utilise le micro pour transcrire votre voix en texte, entièrement sur ce Mac.</string>
     <key>NSAccessibilityUsageDescription</key><string>Voix Fluide colle le texte dicté dans l'application active.</string>
 </dict>
 </plist>
-"#;
+"#
+    .replace("{version}", &version);
     std::fs::write(&out, plist).unwrap();
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!(
