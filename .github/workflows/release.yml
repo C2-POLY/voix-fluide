@@ -1,0 +1,75 @@
+name: Release
+
+# A pushed or moved v* tag builds the binary and publishes it in that tag's
+# Release. A pull request touching this build, or a manual run, only keeps
+# the files as an artifact of the run.
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths: ['.github/workflows/release.yml', 'build.rs']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest # arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      # rustup is preinstalled: this installs the version pinned in rust-toolchain.toml.
+      - name: Install Rust
+        run: |
+          rustup toolchain install || rustup show
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      # build.rs embeds GITHUB_SHA as the commit and VF_RELEASE=1.
+      - name: Build
+        run: cargo build --release --locked
+        env:
+          VF_RELEASE: '1'
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/voix-fluide dist/voix-fluide-aarch64-apple-darwin
+          sha=$(shasum -a 256 dist/voix-fluide-aarch64-apple-darwin | cut -d' ' -f1)
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "voix-fluide") | .version')
+          jq -n --arg version "$version" --arg commit "$GITHUB_SHA" --arg sha256 "$sha" \
+            '{version: $version, commit: $commit, sha256: $sha256}' > dist/latest.json
+          cat dist/latest.json
+
+      # Smoke check: the binary runs and knows it is a release build.
+      - name: Check --version
+        run: |
+          line=$(dist/voix-fluide-aarch64-apple-darwin --version)
+          echo "$line"
+          case "$line" in *", release)") ;; *) echo "not a release build"; exit 1 ;; esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voix-fluide-${{ github.sha }}
+          path: dist/
+
+      # On a tag: create its Release, or replace the files of the existing one
+      # (a tag moved with -f keeps its Release).
+      - name: Publish Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Commit $GITHUB_SHA"
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes "$notes"
+          fi
