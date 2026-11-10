@@ -42,7 +42,7 @@ cargo run -- --transcribe <file.wav> [language]
 <repo>/target/debug/voix-fluide --version
 ```
 
-Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window. The window picture is 1920x1280 pixels (960x640 points on a Retina screen); `VF_PAGE=<home|history|claude|keys|model|audio>` opens it on that page of the sidebar. The pill picture keeps its own size.
+Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window, `VF_UPDATE=<available|uptodate|failed|downloading|checking>` gives the Updates page that state without any network. The window picture is 1920x1280 pixels (960x640 points on a Retina screen); `VF_PAGE=<home|history|claude|keys|model|audio|updates>` opens it on that page of the sidebar. The pill picture keeps its own size.
 
 ## Architecture
 
@@ -51,9 +51,10 @@ Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds af
 - `claude.rs`: mini-sessions. Finds the `claude` binary (PATH, then the usual install places), picks the repository named in the sentence (`route`), builds the read-only `claude -p` arguments (`args`), runs it in the repository and reads its JSON (`run`, `parse`).
 - `whisper.rs`: the models (`ModelSize`, Whisper and Parakeet), their download into `~/Library/Application Support/VoixFluide/models/`, and the Whisper decoder on candle.
 - `mac.rs`: macOS. The shortcut key state, the accessibility and microphone permissions, the relaunch that answers for its own permissions (`run_with_own_permissions`, a signed copy in `VoixFluide/programme/`), and the paste into the active app (`paste_text`, a Cmd+V posted after filling the clipboard, which it can put back).
+- `update.rs`: updates. Reads the latest Release's `latest.json` (`check`, `parse_release`), compares its commit with `VF_COMMIT` (`update_available`), downloads the binary to `programme/source/voix-fluide.part`, checks its SHA-256 and `--version`, renames it to `programme/source/voix-fluide` (`install`), then starts it without `VOIX_FLUIDE_OWN_PERMISSIONS` and quits (`relaunch`). The network runs in its own thread (`spawn_check`, `spawn_install`); Release builds check once at launch.
 - `build.rs`: embeds an Info.plist (bundle id, name, version, microphone and accessibility reasons); without it macOS gives the microphone as silence. Also embeds `VF_COMMIT` (`GITHUB_SHA`, else `git rev-parse HEAD`) and `VF_RELEASE` (`1` when built with `VF_RELEASE=1`, as the CI does).
 
-Everything the app writes lives in `~/Library/Application Support/VoixFluide/` (`settings.json`, `models/`, `programme/`).
+Everything the app writes lives in `~/Library/Application Support/VoixFluide/` (`settings.json`, `models/`, `programme/`, with the downloaded update in `programme/source/`).
 
 ## Site
 

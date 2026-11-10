@@ -3,11 +3,13 @@ mod engine;
 mod icon;
 mod mac;
 mod tray;
+mod update;
 mod whisper;
 
 use egui::{Align, Color32, CornerRadius, FontId, Layout, Margin, RichText, Sense, Stroke, Vec2};
 use engine::{Cmd, Handles, Job, MiniSession, Mode, ModelState, Phase, SessionState, Settings, SharedRef, Target, LANGUAGES};
 use std::path::PathBuf;
+use update::UpdateState;
 use whisper::ModelSize;
 
 const BG_TOP: Color32 = Color32::from_rgb(5, 7, 13);
@@ -149,6 +151,7 @@ enum Page {
     Keys,
     Model,
     Audio,
+    Updates,
 }
 
 impl Page {
@@ -160,6 +163,7 @@ impl Page {
             Ok("keys") => Page::Keys,
             Ok("model") => Page::Model,
             Ok("audio") => Page::Audio,
+            Ok("updates") => Page::Updates,
             _ => Page::Home,
         }
     }
@@ -192,6 +196,8 @@ struct App {
     toast: Option<(String, f64, bool)>,
     /// The icon and menu in the menu bar (none in screenshot runs).
     tray: Option<tray::Tray>,
+    /// The Updates page's state, written by its own thread.
+    update: update::UpdateRef,
 }
 
 /// Height of the macOS title bar the content now runs under, in points.
@@ -346,6 +352,12 @@ impl App {
             egui::ColorImage::from_rgba_unmultiplied([logo_px as usize; 2], &icon::render(logo_px, false)),
             egui::TextureOptions::LINEAR,
         );
+        // VF_UPDATE=<state> (screenshots): a fake state, no network.
+        let fake = std::env::var("VF_UPDATE").ok().and_then(|s| update::fake_state(&s));
+        let update = std::sync::Arc::new(std::sync::Mutex::new(fake.clone().unwrap_or(UpdateState::Idle)));
+        if fake.is_none() && update::check_at_launch(env!("VF_RELEASE") == "1", screenshot.is_some()) {
+            update::spawn_check(update.clone(), cc.egui_ctx.clone());
+        }
         Self {
             page: Page::from_env(),
             logo,
@@ -368,6 +380,7 @@ impl App {
             // VF_TOAST=<text> (screenshots): show a toast that never goes away.
             toast: std::env::var("VF_TOAST").ok().map(|t| (t, f64::INFINITY, true)),
             tray,
+            update,
         }
     }
 
@@ -1003,6 +1016,7 @@ impl eframe::App for App {
             )
         };
         let (phase, levels, model, last, history, message, mut settings, elapsed, mic_dead, last_wav, target, sessions) = snapshot;
+        let update_state = self.update.lock().unwrap().clone();
         let mic_blocked = matches!(self.mic_access, mac::MicAccess::Denied | mac::MicAccess::Restricted | mac::MicAccess::NotAsked);
         let before = settings.clone();
 
@@ -1060,8 +1074,13 @@ impl eframe::App for App {
                 }
                 ui.add_space(10.0);
                 caps(ui, "RÉGLAGES");
-                for (page, label) in [(Page::Keys, "Raccourcis"), (Page::Model, "Modèle et langue"), (Page::Audio, "Micro et sortie")] {
-                    if nav_item(ui, label, self.page == page, None).clicked() {
+                let update_available = matches!(update_state, UpdateState::Available { .. });
+                for (page, label) in [(Page::Keys, "Raccourcis"), (Page::Model, "Modèle et langue"), (Page::Audio, "Micro et sortie"), (Page::Updates, "Mises à jour")] {
+                    let resp = nav_item(ui, label, self.page == page, None);
+                    if page == Page::Updates && update_available {
+                        ui.painter().circle_filled(egui::pos2(resp.rect.right() - 16.0, resp.rect.center().y), 4.0, ACCENT);
+                    }
+                    if resp.clicked() {
                         self.page = page;
                     }
                 }
@@ -1493,6 +1512,56 @@ impl eframe::App for App {
                                 self.quitting = true;
                                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                             }
+                        }
+
+                        Page::Updates => {
+                            page_header(ui, "Mises à jour", "Voix Fluide cherche la dernière version publiée sur GitHub et l'installe sur ce Mac.");
+                            caps(ui, "VERSION INSTALLÉE");
+                            card(ui, |ui| {
+                                let commit = env!("VF_COMMIT");
+                                let kind = if env!("VF_RELEASE") == "1" { "release" } else { "build locale" };
+                                let help = format!("Commit {} · {kind}", &commit[..commit.len().min(7)]);
+                                setting_row(ui, &format!("Version {}", env!("CARGO_PKG_VERSION")), &help, |ui| {
+                                    let busy = matches!(update_state, UpdateState::Checking | UpdateState::Downloading);
+                                    if ui.add_enabled_ui(!busy, |ui| secondary_button(ui, "Rechercher")).inner.clicked() {
+                                        update::spawn_check(self.update.clone(), ui.ctx().clone());
+                                    }
+                                });
+                            });
+                            ui.add_space(12.0);
+                            caps(ui, "DERNIÈRE VERSION");
+                            card(ui, |ui| {
+                                let (line, col) = match &update_state {
+                                    UpdateState::Idle => ("Pas encore vérifié.".to_string(), MUTED),
+                                    UpdateState::Checking => ("Recherche…".to_string(), MUTED),
+                                    UpdateState::UpToDate => ("À jour".to_string(), GREEN),
+                                    UpdateState::Available { version, commit, .. } => (format!("Version {version} disponible (commit {})", &commit[..commit.len().min(7)]), ACCENT),
+                                    UpdateState::Downloading => ("Téléchargement…".to_string(), ACCENT),
+                                    UpdateState::Failed(e) => (e.clone(), AMBER),
+                                };
+                                ui.horizontal(|ui| {
+                                    let (r, _) = ui.allocate_exact_size(Vec2::splat(10.0), Sense::hover());
+                                    ui.painter().circle_filled(r.center(), 5.0, col);
+                                    ui.add(egui::Label::new(RichText::new(line).size(15.0).strong().color(TEXT)).wrap());
+                                });
+                                if let UpdateState::Available { version, commit, sha256 } = &update_state {
+                                    ui.label(RichText::new("Le fichier est vérifié (SHA-256) avant de remplacer cette version, puis Voix Fluide se relance.").size(12.0).color(MUTED));
+                                    ui.add_space(4.0);
+                                    let running = sessions.iter().filter(|s| s.state == SessionState::Running).count();
+                                    let blocked = update::install_blocked(phase, running);
+                                    let btn = egui::Button::new(RichText::new("Installer et relancer").color(Color32::WHITE)).fill(ACCENT);
+                                    if ui.add_enabled(blocked.is_none(), btn).clicked() {
+                                        let release = update::Release { version: version.clone(), commit: commit.clone(), sha256: sha256.clone() };
+                                        update::spawn_install(self.update.clone(), release, self.shared.clone(), ui.ctx().clone());
+                                    }
+                                    if let Some(why) = blocked {
+                                        ui.label(RichText::new(why).size(12.0).color(AMBER));
+                                    }
+                                }
+                                if update_state == UpdateState::Downloading {
+                                    ui.label(RichText::new("Voix Fluide se relancera une fois le fichier vérifié.").size(12.0).color(MUTED));
+                                }
+                            });
                         }
                     }
                 });

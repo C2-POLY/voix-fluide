@@ -204,7 +204,7 @@ extern "C" {
     ) -> libc::c_int;
 }
 
-const CHILD_ENV: &str = "VOIX_FLUIDE_OWN_PERMISSIONS";
+pub(crate) const CHILD_ENV: &str = "VOIX_FLUIDE_OWN_PERMISSIONS";
 
 /// When started by another app (Craft Anything, a terminal…), macOS asks *that*
 /// app's permission for the microphone and silently feeds zeros if it has none.
