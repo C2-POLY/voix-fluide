@@ -93,7 +93,7 @@ git fetch --tags
 git tag -f v0.1.0 origin/main && git push -f origin v0.1.0
 ```
 
-- Release: pushing or moving a `v*` tag runs `.github/workflows/release.yml` (macOS arm64, `cargo build --release`), which publishes `voix-fluide-aarch64-apple-darwin` and `latest.json` (`version`, `commit`, `sha256`) in that tag's GitHub Release, replacing them when the tag moves. A pull request touching `release.yml` or `build.rs`, or a manual run, only builds them as an artifact of the run.
+- Release: pushing or moving a `v*` tag runs `.github/workflows/release.yml` (`macos-latest`, arm64, `cargo build --release`), which publishes `voix-fluide-aarch64-apple-darwin` and `latest.json` (`version`, `commit`, `sha256`) in that tag's GitHub Release, replacing them when the tag moves. A pull request touching `release.yml` or `build.rs`, or a manual run, only builds them as an artifact of the run.
 
 ## Commits and language
 
