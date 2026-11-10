@@ -42,7 +42,7 @@ cargo run -- --transcribe <file.wav> [language]
 <repo>/target/debug/voix-fluide --version
 ```
 
-Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window, `VF_UPDATE=<available|uptodate|failed|downloading|checking>` gives the Updates page that state without any network. The window picture is 1920x1280 pixels (960x640 points on a Retina screen); `VF_PAGE=<home|history|claude|keys|model|audio|updates>` opens it on that page of the sidebar. The pill picture keeps its own size.
+Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window, `VF_UPDATE=<available|uptodate|failed|downloading|checking>` gives the Updates page that state without any network. The window picture is 1920x1280 pixels (960x640 points on a Retina screen); `VF_PAGE=<home|history|claude|keys|model|pill|audio|updates>` opens it on that page of the sidebar. The pill picture keeps its own size.
 
 ## Architecture
 
