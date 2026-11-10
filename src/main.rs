@@ -1,5 +1,6 @@
 mod claude;
 mod engine;
+mod icon;
 mod mac;
 mod whisper;
 
@@ -58,6 +59,8 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Voix Fluide")
+            // Dock and Cmd+Tab icon: the app runs as a bare binary, so there is no .app bundle to carry it.
+            .with_icon(std::sync::Arc::new(egui::IconData { rgba: icon::render(512, true), width: 512, height: 512 }))
             .with_inner_size([560.0, 720.0])
             .with_min_inner_size([440.0, 520.0])
             // Lets the floating pill have rounded, see-through corners.
@@ -123,6 +126,8 @@ fn fonts(ctx: &egui::Context) {
 }
 
 struct App {
+    /// The logo mark shown in the header.
+    logo: egui::TextureHandle,
     shared: SharedRef,
     handles: Option<Handles>,
     screenshot: Option<PathBuf>,
@@ -144,6 +149,9 @@ struct App {
     /// A short note at the bottom of the window and the time it goes away.
     toast: Option<(String, f64, bool)>,
 }
+
+/// Height of the logo mark in the window header, in points.
+const LOGO_PT: f32 = 28.0;
 
 /// How long a toast stays at the bottom of the window (this rebuild).
 const TOAST_S: f64 = 3.0;
@@ -280,7 +288,14 @@ impl App {
             drop(sh);
             None
         };
+        let logo_px = ((LOGO_PT * cc.egui_ctx.pixels_per_point()).ceil() as u32).max(56);
+        let logo = cc.egui_ctx.load_texture(
+            "logo-mark",
+            egui::ColorImage::from_rgba_unmultiplied([logo_px as usize; 2], &icon::render(logo_px, false)),
+            egui::TextureOptions::LINEAR,
+        );
         Self {
+            logo,
             shared,
             handles,
             screenshot,
@@ -712,8 +727,10 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     // Header
+                    ui.add_space(10.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Voix Fluide").size(26.0).family(egui::FontFamily::Proportional).strong());
+                        ui.image(egui::load::SizedTexture::new(self.logo.id(), Vec2::splat(LOGO_PT)));
+                        ui.label(RichText::new("Voix Fluide").size(26.0).family(egui::FontFamily::Proportional).strong().color(TEXT));
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             let (txt, col) = match &model {
                                 ModelState::Ready(s) => (s.clone(), GREEN),
