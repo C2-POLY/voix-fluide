@@ -66,7 +66,12 @@ fn main() -> eframe::Result<()> {
             // Dock and Cmd+Tab icon: the app runs as a bare binary, so there is no .app bundle to carry it.
             .with_icon(std::sync::Arc::new(egui::IconData { rgba: icon::render(512, true), width: 512, height: 512 }))
             .with_inner_size([960.0, 640.0])
-            .with_min_inner_size([760.0, 520.0]),
+            .with_min_inner_size([760.0, 520.0])
+            // Unified title bar: the content runs under a transparent title bar, so the
+            // sidebar reaches the top and the traffic lights sit on it.
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false),
         ..Default::default()
     };
     eframe::run_native(
@@ -178,6 +183,9 @@ struct App {
     /// A short note at the bottom of the window and the time it goes away.
     toast: Option<(String, f64, bool)>,
 }
+
+/// Height of the macOS title bar the content now runs under, in points.
+const TITLEBAR_PT: f32 = 22.0;
 
 /// Height of the logo mark in the window header, in points.
 const LOGO_PT: f32 = 28.0;
@@ -931,6 +939,8 @@ impl eframe::App for App {
             .resizable(false)
             .frame(egui::Frame::new().fill(Color32::from_rgb(9, 13, 23)).inner_margin(Margin::symmetric(12, 18)))
             .show(ctx, |ui| {
+                // Room for the traffic lights of the transparent title bar.
+                ui.add_space(TITLEBAR_PT);
                 ui.horizontal(|ui| {
                     ui.add_space(4.0);
                     ui.image(egui::load::SizedTexture::new(self.logo.id(), Vec2::splat(LOGO_PT)));
@@ -976,7 +986,7 @@ impl eframe::App for App {
 
         // Page
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().inner_margin(Margin::symmetric(32, 26)))
+            .frame(egui::Frame::new().inner_margin(Margin { left: 32, right: 32, top: 26 + TITLEBAR_PT as i8, bottom: 26 }))
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     match self.page {
