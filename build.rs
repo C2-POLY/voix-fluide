@@ -9,7 +9,7 @@ fn main() {
     <key>CFBundleIdentifier</key><string>app.voixfluide.dictee</string>
     <key>CFBundleName</key><string>Voix Fluide</string>
     <key>CFBundleDisplayName</key><string>Voix Fluide</string>
-    <key>CFBundleShortVersionString</key><string>0.2.0</string>
+    <key>CFBundleShortVersionString</key><string>0.3.0</string>
     <key>NSMicrophoneUsageDescription</key><string>Voix Fluide utilise le micro pour transcrire votre voix en texte, entièrement sur ce Mac.</string>
     <key>NSAccessibilityUsageDescription</key><string>Voix Fluide colle le texte dicté dans l'application active.</string>
 </dict>
