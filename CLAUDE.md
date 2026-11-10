@@ -52,6 +52,15 @@ Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds af
 
 Everything the app writes lives in `~/Library/Application Support/VoixFluide/` (`settings.json`, `models/`, `programme/`).
 
+## Site
+
+`site/` is the presentation page, published at <https://c2-poly.github.io/voix-fluide/> by `.github/workflows/pages.yml` on every merge into `main` that touches it (a pull request only builds it). Vite, React, TypeScript, Tailwind 4, GSAP (ScrollTrigger, SplitText, DrawSVG) and Lenis; `npm` from inside `site/`: `npm install`, `npm run dev` (served under `/voix-fluide/`), `npm run build` (typecheck and build).
+
+- Its text lives in `src/i18n.ts`, in French and English: change both together, and keep every figure true to `MECHANICS.md` and the code.
+- Look: "paper and ink" (paper `#f2ece1`, ink `#16130f`, one vermilion accent, Fraunces and IBM Plex Mono). No purple gradient, glass effect or particle background.
+- `public/fenetre.png` is the window screenshot (`VF_SESSIONS=1 … --screenshot`); retake it when the window changes. The pill is redrawn in HTML (`components/Pill.tsx`), not a picture.
+- Every animation goes through `gsap.matchMedia()` or checks `reducedMotion()`, so the page stays still with "Reduce motion".
+
 ## Work items (GitHub)
 
 Work items are GitHub issues of `C2-POLY/voix-fluide`, tracked in the organisation's project **Voix Fluide** (<https://github.com/orgs/C2-POLY/projects/5>, number 5). `gh` must be signed in with the `project` scope (`gh auth refresh -s project`).
