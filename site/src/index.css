@@ -4,20 +4,22 @@
 @import '@fontsource/ibm-plex-mono/400.css';
 @import '@fontsource/ibm-plex-mono/500.css';
 
+/* The app's own palette (src/main.rs): night blue, light text, one electric blue. */
 @theme {
-  --color-paper: #f2ece1;
-  --color-paper-deep: #e8e0d1;
-  --color-ink: #16130f;
-  --color-ink-soft: #5a5348;
-  --color-vermilion: #d9381e;
-  --color-plate: #0b0f1a;
+  --color-night: #0b0f1a;
+  --color-card: #10141f;
+  --color-line: #262c3c;
+  --color-snow: #f2f4f8;
+  --color-mist: #9ba3b4;
+  --color-signal: #1a75ff;
   --font-serif: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 }
 
 html {
-  background: var(--color-paper);
-  color: var(--color-ink);
+  color-scheme: dark;
+  background: var(--color-night);
+  color: var(--color-snow);
   font-family: var(--font-serif);
   font-variation-settings: 'opsz' 14, 'SOFT' 50;
   -webkit-font-smoothing: antialiased;
@@ -25,25 +27,37 @@ html {
 }
 
 body {
-  background: var(--color-paper);
+  background: var(--color-night);
   overflow-x: hidden;
 }
 
-/* Paper grain: a fixed noise layer, multiplied into the page */
+/* The window's gradient, from near black at the top to deep blue, held still behind the page */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 70% at 85% 110%, rgba(26, 117, 255, 0.16), transparent 60%),
+    linear-gradient(180deg, #05070d 0%, #0b0f1a 40%, #0c1a33 100%);
+}
+
+/* Grain: a fixed noise layer, lightened into the night */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 50;
-  opacity: 0.32;
-  mix-blend-mode: multiply;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .38 0 0 0 0 .28 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.09;
+  mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .8 0 0 0 0 .85 0 0 0 0 1 0 0 0 .6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 ::selection {
-  background: var(--color-vermilion);
-  color: var(--color-paper);
+  background: var(--color-signal);
+  color: var(--color-snow);
 }
 
 .display {
@@ -68,7 +82,7 @@ body::before {
 .leader {
   flex: 1;
   min-width: 1.5rem;
-  border-bottom: 1px dotted color-mix(in srgb, var(--color-ink) 45%, transparent);
+  border-bottom: 1px dotted color-mix(in srgb, var(--color-snow) 45%, transparent);
   transform: translateY(-0.35em);
 }
 
@@ -78,7 +92,7 @@ body::before {
   height: 0.95em;
   margin-left: 0.06em;
   border-radius: 0.05em;
-  background: var(--color-vermilion);
+  background: var(--color-signal);
   vertical-align: -0.12em;
   animation: blink 1.05s steps(1) infinite;
 }
@@ -120,7 +134,7 @@ body::before {
 
 a:focus-visible,
 button:focus-visible {
-  outline: 2px solid var(--color-vermilion);
+  outline: 2px solid var(--color-signal);
   outline-offset: 3px;
 }
 

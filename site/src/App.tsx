@@ -142,18 +142,18 @@ function Masthead({ c, lang, setLang }: { c: Copy; lang: Lang; setLang: (l: Lang
           <LogoMark className="h-5 w-auto" />
           <span className="smallcaps font-medium">Voix Fluide</span>
         </a>
-        <p className="smallcaps hidden text-ink-soft md:block">
+        <p className="smallcaps hidden text-mist md:block">
           {c.masthead.issue} · {c.masthead.date} · {c.masthead.tag}
         </p>
         <div className="smallcaps flex items-center gap-1" role="group" aria-label="Langue / Language">
           {(['fr', 'en'] as const).map((l, i) => (
             <span key={l} className="flex items-center gap-1">
-              {i > 0 && <span className="text-ink-soft">/</span>}
+              {i > 0 && <span className="text-mist">/</span>}
               <button
                 type="button"
                 onClick={() => setLang(l)}
                 aria-pressed={lang === l}
-                className={`cursor-pointer px-1 py-1 ${lang === l ? 'text-ink underline decoration-vermilion decoration-2 underline-offset-4' : 'text-ink-soft hover:text-ink'}`}
+                className={`cursor-pointer px-1 py-1 ${lang === l ? 'text-snow underline decoration-signal decoration-2 underline-offset-4' : 'text-mist hover:text-snow'}`}
               >
                 {l.toUpperCase()}
               </button>
@@ -161,11 +161,11 @@ function Masthead({ c, lang, setLang }: { c: Copy; lang: Lang; setLang: (l: Lang
           ))}
         </div>
       </div>
-      <p className="smallcaps mt-3 text-ink-soft md:hidden">
+      <p className="smallcaps mt-3 text-mist md:hidden">
         {c.masthead.issue} · {c.masthead.date}
       </p>
-      <div className="mt-4 border-t-[3px] border-ink" />
-      <div className="mt-[3px] border-t border-ink" />
+      <div className="mt-4 border-t-[3px] border-snow" />
+      <div className="mt-[3px] border-t border-snow" />
     </header>
   )
 }
@@ -184,23 +184,30 @@ function Hero({ c }: { c: Copy }) {
         <span className="hero-line line-mask block md:pl-[8%]">
           <span className="block italic">
             {l3.replace(/\.$/, '')}
-            <span className="text-vermilion">.</span>
+            <span className="text-signal">.</span>
           </span>
         </span>
       </h1>
 
       <div className="mt-12 grid gap-10 md:mt-16 md:grid-cols-12 md:gap-8">
         <p data-hero-fade className="text-lg leading-relaxed md:col-span-4 md:text-xl">
-          <span className="float-left mt-1 mr-2 font-serif text-[3.6em] leading-[0.8] text-vermilion italic">
+          <span className="float-left mt-1 mr-2 font-serif text-[3.6em] leading-[0.8] text-signal italic">
             {c.hero.lede.charAt(0)}
           </span>
           {c.hero.lede.slice(1)}
+          <span className="mt-6 block space-y-2 text-base text-mist">
+            {c.hero.keys.map((k) => (
+              <span key={k} className="block">
+                {rich(k)}
+              </span>
+            ))}
+          </span>
         </p>
         <div data-hero-fade className="md:col-span-7 md:col-start-6">
           <WaveToText sentences={c.hero.sentences} />
         </div>
       </div>
-      <p data-hero-fade className="smallcaps mt-14 text-ink-soft">
+      <p data-hero-fade className="smallcaps mt-14 text-mist">
         {c.hero.cue} <span aria-hidden="true">↓</span>
       </p>
     </section>
@@ -212,12 +219,12 @@ const ROMAN = ['I', 'II', 'III', 'IV', 'V']
 
 function Contents({ c }: { c: Copy }) {
   return (
-    <nav aria-label="Sommaire" className="border-y border-ink py-3">
+    <nav aria-label="Sommaire" className="border-y border-snow py-3">
       <ol className="smallcaps flex flex-wrap gap-x-8 gap-y-2">
         {SECTIONS.map((id, i) => (
           <li key={id}>
-            <a href={`#${id}`} className="group inline-flex gap-2 py-1 hover:text-vermilion">
-              <span className="text-vermilion">{ROMAN[i]}</span>
+            <a href={`#${id}`} className="group inline-flex gap-2 py-1 hover:text-signal">
+              <span className="text-signal">{ROMAN[i]}</span>
               <span>{c.nav[id]}</span>
             </a>
           </li>
@@ -231,7 +238,7 @@ function Section({ id, kicker, title, children }: { id: string; kicker: string; 
   return (
     <section id={id} className="grid scroll-mt-6 gap-8 py-20 md:grid-cols-12 md:gap-8 md:py-32">
       <div className="min-w-0 md:col-span-3">
-        <p className="smallcaps text-vermilion md:sticky md:top-8">{kicker}</p>
+        <p className="smallcaps text-signal md:sticky md:top-8">{kicker}</p>
       </div>
       <div className="min-w-0 md:col-span-9">
         <h2 className="split-title display text-[clamp(2.6rem,7vw,6.2rem)] leading-[0.95] font-[360]">{title}</h2>
@@ -242,22 +249,27 @@ function Section({ id, kicker, title, children }: { id: string; kicker: string; 
 }
 
 function Rule() {
-  return <div data-rule className="h-px bg-ink" />
+  return <div data-rule className="h-px bg-snow" />
 }
 
 function How({ c }: { c: Copy }) {
   return (
     <>
       <Section id="how" kicker={c.how.kicker} title={c.how.title}>
-        <ol className="mt-14 grid gap-10 md:grid-cols-3 md:gap-0 md:divide-x md:divide-ink/25">
+        <ol className="mt-14 grid gap-10 md:grid-cols-3 md:gap-0 md:divide-x md:divide-snow/25">
           {c.how.steps.map((s, i) => (
             <li key={s.word} data-reveal className="md:px-7 md:first:pl-0 md:last:pr-0">
-              <span className="display block text-6xl text-vermilion italic">{i + 1}</span>
+              <span className="display block text-6xl text-signal italic">{i + 1}</span>
               <h3 className="display mt-3 text-3xl font-[420] md:text-4xl">{s.word}</h3>
-              <p className="mt-4 leading-relaxed text-ink-soft">{s.body}</p>
+              <p className="mt-4 leading-relaxed text-mist">{rich(s.body)}</p>
             </li>
           ))}
         </ol>
+        <Shot src="accueil.jpg" width={1600} height={1066} caption={c.how.figure} />
+        <p data-reveal className="mt-10 flex max-w-[60ch] gap-4 leading-relaxed text-mist">
+          <MenuBarIcon />
+          <span>{c.how.menubar}</span>
+        </p>
       </Section>
       <Rule />
     </>
@@ -271,14 +283,14 @@ function Local({ c }: { c: Copy }) {
         <p data-reveal className="mt-8 max-w-[52ch] text-xl leading-relaxed md:text-2xl">
           {c.local.body}
         </p>
-        <dl className="mt-14 border-t border-ink">
+        <dl className="mt-14 border-t border-snow">
           {c.local.rows.map(([k, v]) => (
-            <div key={k} data-reveal className="flex flex-col gap-1 border-b border-ink/25 py-4 md:flex-row md:items-baseline md:gap-4">
+            <div key={k} data-reveal className="flex flex-col gap-1 border-b border-snow/25 py-4 md:flex-row md:items-baseline md:gap-4">
               <dt className="flex items-baseline gap-4 md:w-[45%]">
                 <span className="display text-2xl font-[420]">{k}</span>
                 <span className="leader hidden md:block" aria-hidden="true" />
               </dt>
-              <dd className="font-mono text-[0.85rem] leading-relaxed text-ink-soft md:flex-1">{v}</dd>
+              <dd className="font-mono text-[0.85rem] leading-relaxed text-mist md:flex-1">{v}</dd>
             </div>
           ))}
         </dl>
@@ -314,7 +326,7 @@ function PillSection({ c }: { c: Copy }) {
         <div ref={ref} className="mt-14 grid gap-10 md:grid-cols-9 md:gap-8">
           <div className="sticky top-4 z-10 md:order-2 md:col-span-5 md:top-24 md:self-start">
             <figure>
-              <div className="relative flex aspect-[4/3] items-end justify-center overflow-hidden rounded-sm bg-plate px-5 pb-[12%] shadow-[0_30px_80px_-40px_rgba(22,19,15,0.7)]">
+              <div className="relative flex aspect-[4/3] items-end justify-center overflow-hidden rounded-xl border border-line bg-[linear-gradient(180deg,#05070d,#0c1a33)] px-5 pb-[12%] shadow-[0_40px_90px_-40px_rgba(0,0,0,0.9)]">
                 <div className="absolute inset-x-0 top-0 flex h-6 items-center gap-1.5 bg-white/5 px-3" aria-hidden="true">
                   <span className="h-2 w-2 rounded-full bg-white/15" />
                   <span className="h-2 w-2 rounded-full bg-white/15" />
@@ -322,14 +334,14 @@ function PillSection({ c }: { c: Copy }) {
                 </div>
                 <Pill state={PILL_STATES[stage]} label={st.label} text={c.pill.pasted} />
               </div>
-              <figcaption className="smallcaps mt-3 text-ink-soft">{c.pill.figure}</figcaption>
+              <figcaption className="smallcaps mt-3 text-mist">{c.pill.figure}</figcaption>
             </figure>
           </div>
           <ol data-stages className="md:order-1 md:col-span-4">
             {c.pill.states.map((s, i) => (
               <li
                 key={s.label}
-                className={`flex min-h-[38vh] flex-col justify-center border-l-2 py-6 pl-5 transition-colors duration-500 md:min-h-[55vh] ${i === stage ? 'border-vermilion text-ink' : 'border-ink/15 text-ink/35'}`}
+                className={`flex min-h-[38vh] flex-col justify-center border-l-2 py-6 pl-5 transition-colors duration-500 md:min-h-[55vh] ${i === stage ? 'border-signal text-snow' : 'border-snow/15 text-snow/35'}`}
               >
                 <span className="smallcaps">{String(i + 1).padStart(2, '0')}</span>
                 <h3 className="display mt-2 text-3xl font-[420] md:text-4xl">{s.label}</h3>
@@ -349,52 +361,41 @@ function ClaudeSection({ c }: { c: Copy }) {
     <>
       <Section id="claude" kicker={c.claude.kicker} title={c.claude.title}>
         <p data-reveal className="mt-8 max-w-[52ch] text-xl leading-relaxed md:text-2xl">
-          {c.claude.body}
+          {rich(c.claude.body)}
         </p>
 
         <div className="mt-16 grid gap-14 lg:grid-cols-9 lg:gap-10">
           <div className="lg:col-span-5">
             <div id="qa">
-              <p className="smallcaps text-ink-soft">{c.claude.qLabel}</p>
+              <p className="smallcaps text-mist">{c.claude.qLabel}</p>
               <blockquote id="question" className="display mt-3 text-3xl leading-tight font-[340] italic md:text-[2.6rem]">
                 {c.claude.question}
               </blockquote>
-              <div id="answer" className="mt-10 border-l-2 border-vermilion pl-5">
-                <p className="smallcaps text-ink-soft">{c.claude.aLabel}</p>
+              <div id="answer" className="mt-10 border-l-2 border-signal pl-5">
+                <p className="smallcaps text-mist">{c.claude.aLabel}</p>
                 <p className="mt-3 text-xl leading-relaxed">{c.claude.answer}</p>
-                <p id="spoken" className="smallcaps mt-4 inline-flex items-center gap-2 text-vermilion">
+                <p id="spoken" className="smallcaps mt-4 inline-flex items-center gap-2 text-signal">
                   <SpeakerIcon /> {c.claude.spoken}
                 </p>
               </div>
             </div>
+          </div>
 
-            <ul className="mt-14 space-y-4">
+          <div className="lg:col-span-4 lg:pt-8">
+            <ul className="space-y-4">
               {c.claude.points.map((p, i) => (
                 <li key={p} data-reveal className="flex gap-4 leading-relaxed">
-                  <span className="smallcaps pt-1 text-vermilion">{String.fromCharCode(97 + i)}.</span>
+                  <span className="smallcaps pt-1 text-signal">{String.fromCharCode(97 + i)}.</span>
                   <span>{p}</span>
                 </li>
               ))}
             </ul>
-            <p data-reveal className="mt-10 border-y border-ink/25 py-4 text-ink-soft italic">
+            <p data-reveal className="mt-10 border-y border-snow/25 py-4 text-mist italic">
               {c.claude.note}
             </p>
           </div>
-
-          <figure className="lg:col-span-4">
-            <div data-plate className="bg-plate p-3 shadow-[0_40px_90px_-40px_rgba(22,19,15,0.75)] md:p-4">
-              <img
-                src={`${import.meta.env.BASE_URL}fenetre.png`}
-                width={560}
-                height={720}
-                loading="lazy"
-                alt={c.claude.figure}
-                className="block h-auto w-full"
-              />
-            </div>
-            <figcaption className="smallcaps relative mt-8 text-ink-soft">{c.claude.figure}</figcaption>
-          </figure>
         </div>
+        <Shot src="claude.jpg" width={1600} height={683} caption={c.claude.figure} />
       </Section>
       <Rule />
     </>
@@ -418,18 +419,18 @@ function TryIt({ c }: { c: Copy }) {
       <p data-reveal className="mt-8 max-w-[52ch] text-xl leading-relaxed md:text-2xl">
         {c.tryIt.body}
       </p>
-      <div data-reveal className="relative mt-12 bg-plate text-[#e9e4d8]">
+      <div data-reveal className="relative mt-12 rounded-xl border border-line bg-card">
         <button
           type="button"
           onClick={onCopy}
-          className="smallcaps absolute top-3 right-3 cursor-pointer border border-white/20 px-3 py-1.5 text-[#e9e4d8] hover:border-vermilion hover:text-white"
+          className="absolute top-3 right-3 cursor-pointer rounded-lg border border-line bg-night px-3 py-1.5 text-sm text-mist hover:border-signal hover:text-snow"
         >
           {copied ? c.tryIt.copied : c.tryIt.copy}
         </button>
         <pre className="overflow-x-auto px-5 py-6 pr-24 font-mono text-[0.85rem] leading-8 md:px-8 md:text-base">
           {INSTALL.map((line) => (
             <span key={line} className="block">
-              <span className="text-vermilion select-none">$ </span>
+              <span className="text-signal select-none">$ </span>
               {line}
             </span>
           ))}
@@ -437,7 +438,7 @@ function TryIt({ c }: { c: Copy }) {
       </div>
       <ul className="mt-10 grid gap-6 md:grid-cols-2">
         {c.tryIt.after.map((a) => (
-          <li key={a} data-reveal className="border-t border-ink/25 pt-4 leading-relaxed text-ink-soft">
+          <li key={a} data-reveal className="border-t border-snow/25 pt-4 leading-relaxed text-mist">
             {a}
           </li>
         ))}
@@ -448,34 +449,34 @@ function TryIt({ c }: { c: Copy }) {
 
 function Colophon({ c }: { c: Copy }) {
   return (
-    <footer className="mt-10 mb-10 border-t-[3px] border-ink pt-8">
+    <footer className="mt-10 mb-10 border-t-[3px] border-snow pt-8">
       <div className="grid gap-8 md:grid-cols-12">
         <div className="min-w-0 md:col-span-3">
           <LogoMark className="h-10 w-auto" />
         </div>
         <div className="md:col-span-6">
-          <p className="smallcaps text-vermilion">{c.colophon.title}</p>
-          <p className="mt-3 max-w-[48ch] leading-relaxed text-ink-soft italic">{c.colophon.body}</p>
+          <p className="smallcaps text-signal">{c.colophon.title}</p>
+          <p className="mt-3 max-w-[48ch] leading-relaxed text-mist italic">{c.colophon.body}</p>
         </div>
         <ul className="smallcaps space-y-2 md:col-span-3 md:text-right">
           <li>
-            <a className="underline decoration-ink/30 underline-offset-4 hover:text-vermilion" href={REPO}>
+            <a className="underline decoration-snow/30 underline-offset-4 hover:text-signal" href={REPO}>
               {c.colophon.source} ↗
             </a>
           </li>
           <li>
-            <a className="underline decoration-ink/30 underline-offset-4 hover:text-vermilion" href={`${REPO}/issues`}>
+            <a className="underline decoration-snow/30 underline-offset-4 hover:text-signal" href={`${REPO}/issues`}>
               {c.colophon.issues} ↗
             </a>
           </li>
-          <li className="pt-3 text-ink-soft">C2-POLY · 2026</li>
+          <li className="pt-3 text-mist">C2-POLY · 2026</li>
         </ul>
       </div>
     </footer>
   )
 }
 
-// The app's logo, in ink with a vermilion caret.
+// The app's logo, in its own colours: a light wave and a blue caret.
 function LogoMark({ className }: { className?: string }) {
   return (
     <svg viewBox="200 200 624 624" className={className} aria-hidden="true">
@@ -487,7 +488,58 @@ function LogoMark({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <rect x="742" y="372" width="44" height="280" rx="22" className="fill-vermilion" />
+      <rect x="742" y="372" width="44" height="280" rx="22" className="fill-signal" />
+    </svg>
+  )
+}
+
+// A keycap as the app draws them: "⌥ droite", "⌘ droite".
+function Key({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="mx-0.5 inline-block rounded-md border border-[#3a4258] bg-[#151a27] px-2 py-px align-[0.08em] font-sans text-[0.85em] leading-snug font-normal text-snow not-italic shadow-[inset_0_-1px_0_rgba(255,255,255,0.06)]">
+      {children}
+    </kbd>
+  )
+}
+
+// Copy strings mark keys as [⌥ droite]; this turns them into keycaps.
+function rich(text: string) {
+  return text.split(/\[([^\]]+)\]/).map((part, i) => (i % 2 ? <Key key={i}>{part}</Key> : part))
+}
+
+// A screenshot of the app, framed like its window and settling in as it scrolls.
+function Shot({ src, width, height, caption }: { src: string; width: number; height: number; caption: string }) {
+  return (
+    <figure className="mt-16">
+      <div data-plate className="overflow-hidden rounded-xl border border-line shadow-[0_50px_120px_-50px_rgba(0,0,0,0.95)]">
+        <img
+          src={`${import.meta.env.BASE_URL}${src}`}
+          width={width}
+          height={height}
+          loading="lazy"
+          alt={caption}
+          className="block h-auto w-full"
+          // Triggers below the picture were placed before it loaded.
+          onLoad={() => ScrollTrigger.refresh()}
+        />
+      </div>
+      <figcaption className="smallcaps relative mt-5 text-mist">{caption}</figcaption>
+    </figure>
+  )
+}
+
+function MenuBarIcon() {
+  return (
+    <svg viewBox="200 200 624 624" className="mt-1 h-4 w-auto shrink-0 text-snow" aria-hidden="true">
+      <path
+        d="M220 512 Q255 152 290 512 Q325 812 360 512 Q395 292 430 512 Q465 652 500 512 Q535 442 570 512 Q605 536 640 512 L690 512"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="64"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect x="742" y="372" width="48" height="280" rx="24" fill="currentColor" />
     </svg>
   )
 }
