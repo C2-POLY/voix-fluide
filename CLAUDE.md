@@ -37,20 +37,24 @@ cargo run -- --transcribe <file.wav> [language]
 
 # Screenshot of the floating pill in each of its states (keep --screenshot: it skips the permission relaunch)
 (cd /tmp && VF_PILL_SHOT=<out.png> <repo>/target/debug/voix-fluide --screenshot /dev/null)
+
+# Version, commit and kind of build ("release" from the CI, "build locale" otherwise); no relaunch, no permissions
+<repo>/target/debug/voix-fluide --version
 ```
 
-Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window. The window picture is 1920x1280 pixels (960x640 points on a Retina screen); `VF_PAGE=<home|history|claude|keys|model|audio>` opens it on that page of the sidebar. The pill picture keeps its own size.
+Other switches: `VF_PILL_DEMO=1` pretends to dictate between 6 and 10 seconds after launch, `VF_DEBUG=1` prints Whisper's decoding steps, `VF_SESSIONS=1` fills the Mini-sessions list with three sample sessions (running, done, failed) for `--screenshot`, `VF_TOAST=<text>` shows that toast at the bottom of the window, `VF_UPDATE=<available|uptodate|failed|downloading|checking>` gives the Updates page that state without any network. The window picture is 1920x1280 pixels (960x640 points on a Retina screen); `VF_PAGE=<home|history|claude|keys|model|pill|audio|updates>` opens it on that page of the sidebar. The pill picture keeps its own size.
 
 ## Architecture
 
-- `main.rs`: arguments (`--screenshot`, `--transcribe`, `--signature-check`), the window (`App`: settings, history, permissions) and the floating pill (`draw_pill`, `pill_layout`).
+- `main.rs`: arguments (`--screenshot`, `--transcribe`, `--signature-check`, `--version`), the window (`App`: settings, history, permissions) and the floating pill (`draw_pill`, `pill_layout`).
 - `engine.rs`: the settings (`Settings`, kept in `settings.json`), the shared state (`Shared` behind a `Mutex`, with the mini-sessions and `last_repo`), and two threads: `controller` (the two shortcut keys, tap or hold, the microphone through `cpal`, `Cmd`s carrying a `Target`) and `worker` (loading the model and transcribing, `Job`s; a `Target::Session` text starts a mini-session in its own thread instead of being pasted). Silence and dead-microphone checks, resampling to 16 kHz, the history (50 entries).
 - `claude.rs`: mini-sessions. Finds the `claude` binary (PATH, then the usual install places), picks the repository named in the sentence (`route`), builds the read-only `claude -p` arguments (`args`), runs it in the repository and reads its JSON (`run`, `parse`).
 - `whisper.rs`: the models (`ModelSize`, Whisper and Parakeet), their download into `~/Library/Application Support/VoixFluide/models/`, and the Whisper decoder on candle.
 - `mac.rs`: macOS. The shortcut key state, the accessibility and microphone permissions, the relaunch that answers for its own permissions (`run_with_own_permissions`, a signed copy in `VoixFluide/programme/`), and the paste into the active app (`paste_text`, a Cmd+V posted after filling the clipboard, which it can put back).
-- `build.rs`: embeds an Info.plist (bundle id, name, version, microphone and accessibility reasons); without it macOS gives the microphone as silence.
+- `update.rs`: updates. Reads the latest Release's `latest.json` (`check`, `parse_release`), compares its commit with `VF_COMMIT` (`update_available`), downloads the binary to `programme/source/voix-fluide.part`, checks its SHA-256 and `--version`, renames it to `programme/source/voix-fluide` (`install`), then starts it without `VOIX_FLUIDE_OWN_PERMISSIONS` and quits (`relaunch`). The network runs in its own thread (`spawn_check`, `spawn_install`); Release builds check once at launch.
+- `build.rs`: embeds an Info.plist (bundle id, name, version, microphone and accessibility reasons); without it macOS gives the microphone as silence. Also embeds `VF_COMMIT` (`GITHUB_SHA`, else `git rev-parse HEAD`) and `VF_RELEASE` (`1` when built with `VF_RELEASE=1`, as the CI does).
 
-Everything the app writes lives in `~/Library/Application Support/VoixFluide/` (`settings.json`, `models/`, `programme/`).
+Everything the app writes lives in `~/Library/Application Support/VoixFluide/` (`settings.json`, `models/`, `programme/`, with the downloaded update in `programme/source/`).
 
 ## Site
 
@@ -89,6 +93,8 @@ Project ids for `gh project item-edit`: project `PVT_kwDODd-WqM4Bq3jr`, Status f
 git fetch --tags
 git tag -f v0.1.0 origin/main && git push -f origin v0.1.0
 ```
+
+- Release: pushing or moving a `v*` tag runs `.github/workflows/release.yml` (`macos-latest`, arm64, `cargo build --release`), which publishes `voix-fluide-aarch64-apple-darwin` and `latest.json` (`version`, `commit`, `sha256`) in that tag's GitHub Release, replacing them when the tag moves. A pull request touching `release.yml` or `build.rs`, or a manual run, only builds them as an artifact of the run.
 
 ## Commits and language
 
