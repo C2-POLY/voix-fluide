@@ -25,7 +25,7 @@ export function Pill({ state, label, text }: { state: PillState; label: string; 
 
   return (
     <div
-      className={`@container max-w-full rounded-[18px] border px-[18px] py-3 font-sans text-[13px] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.9)] transition-[width,border-color] duration-500 ${transcribing ? 'w-[230px] border-[#1a3a6e]' : 'w-[340px] border-[#2e3546]'}`}
+      className={`@container max-w-full rounded-[18px] border px-[18px] py-3 font-sans text-[13px] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.9)] transition-[width,border-color] duration-500 motion-reduce:transition-none ${transcribing ? 'w-[230px] border-[#1a3a6e]' : 'w-[340px] border-[#2e3546]'}`}
       style={{ background: 'rgba(0, 0, 0, 0.92)' }}
       role="img"
       aria-label={text && state === 'pasted' ? `${label} : ${text}` : label}
