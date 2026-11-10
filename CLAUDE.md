@@ -10,11 +10,11 @@ A dictation app for macOS in Rust and egui: hold or tap a key, speak, and the te
 
 ## Stack
 
-Rust 2021, pinned to 1.85.1 by `rust-toolchain.toml` (rustup), eframe and egui 0.31 on glow, `cpal` for the microphone, `candle` 0.9.1 with Metal for Whisper, `parakeet-rs` and `ort` for Parakeet, `ureq` for the model downloads (Hugging Face), `arboard` for the clipboard. macOS APIs (accessibility, microphone permission, key state, paste) are called directly in `mac.rs`.
+Rust 2021, pinned to 1.88.0 by `rust-toolchain.toml` (rustup), eframe and egui 0.31 on glow, `cpal` for the microphone, `candle` 0.9.2 with Metal for Whisper, `parakeet-rs` and `ort` for Parakeet, `ureq` for the model downloads (Hugging Face), `arboard` for the clipboard. macOS APIs (accessibility, microphone permission, key state, paste) are called directly in `mac.rs`.
 
 ## Commands
 
-Run them from the repository root (or a worktree's root), never with `--manifest-path` from another folder. rustup picks the toolchain from the current folder's `rust-toolchain.toml`. From the workspace folder above, it uses the default stable instead of 1.85.1, and every switch between the two recompiles all 324 crates (about 3 minutes) in the shared `target/`.
+Run them from the repository root (or a worktree's root), never with `--manifest-path` from another folder. rustup picks the toolchain from the current folder's `rust-toolchain.toml`. From the workspace folder above, it uses the default stable instead of 1.88.0, and every switch between the two recompiles all 324 crates (about 3 minutes) in the shared `target/`.
 
 ```bash
 # Build and run
