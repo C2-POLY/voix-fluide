@@ -4,11 +4,13 @@ export type Copy = {
   htmlTitle: string
   masthead: { issue: string; date: string; tag: string }
   nav: { how: string; local: string; pill: string; claude: string; try: string }
-  hero: { lines: string[]; lede: string; sentences: string[]; cue: string }
+  hero: { lines: string[]; lede: string; keys: string[]; sentences: string[]; cue: string }
   how: {
     kicker: string
     title: string
     steps: { word: string; body: string }[]
+    figure: string
+    menubar: string
   }
   local: {
     kicker: string
@@ -61,6 +63,7 @@ export const copy: Record<Lang, Copy> = {
         'Le seuil passe à 0,4 seconde.',
       ],
       cue: 'Faites défiler',
+      keys: ['Appuyez sur [⌥ droite] pour dicter.', 'Maintenez [⌘ droite] pour demander à Claude Code.'],
     },
     how: {
       kicker: 'I. Le geste',
@@ -68,7 +71,7 @@ export const copy: Record<Lang, Copy> = {
       steps: [
         {
           word: 'Appuyez',
-          body: 'Sur Option droite (⌥). Un appui lance l’écoute, un second l’arrête. En mode Automatique, gardez la touche enfoncée pour parler : au-delà de 0,4 s, c’est un appui long.',
+          body: 'Sur [⌥ droite]. En Bascule, un appui lance l’écoute et un second l’arrête ; en Maintien, elle dure tant que la touche est tenue ; en Automatique, au-delà de 0,4 s, c’est un appui long.',
         },
         {
           word: 'Dites',
@@ -76,9 +79,11 @@ export const copy: Record<Lang, Copy> = {
         },
         {
           word: 'C’est collé',
-          body: 'Le texte arrive à l’endroit du curseur, par un ⌘V. Votre presse-papiers est remis tel qu’il était.',
+          body: 'Le texte arrive à l’endroit du curseur, par un [⌘ V]. Votre presse-papiers est remis tel qu’il était.',
         },
       ],
+      figure: 'Fig. 1 · L’accueil de l’app : le bouton, et les deux touches.',
+      menubar: 'Et dans la barre des menus, l’icône de Voix Fluide : l’état de l’app, la dernière dictée à copier, le choix du micro.',
     },
     local: {
       kicker: 'II. Le lieu',
@@ -101,12 +106,12 @@ export const copy: Record<Lang, Copy> = {
         { label: 'Collé', caption: 'La phrase s’affiche un instant, puis la pastille disparaît.' },
       ],
       pasted: 'Bonjour, ceci est un essai de dictée vocale. Le texte apparaît dans la fenêtre.',
-      figure: 'Fig. 1 · La pastille, à 50 points du bas de l’écran.',
+      figure: 'Fig. 2 · La pastille, à 50 points du bas de l’écran.',
     },
     claude: {
       kicker: 'IV. La seconde touche',
       title: 'Posez une question à votre code.',
-      body: 'Commande droite (⌘) enregistre une question au lieu d’une dictée. Nommez le dépôt dans la phrase : Voix Fluide lance Claude Code dans ce dossier, puis lit la réponse à voix haute.',
+      body: '[⌘ droite] enregistre une question au lieu d’une dictée. Nommez le dépôt dans la phrase : Voix Fluide lance Claude Code dans ce dossier, puis lit la réponse à voix haute.',
       qLabel: 'Vous, à voix haute',
       question: '« Dans voix fluide, où est réglé le seuil entre appui court et appui long ? »',
       aLabel: 'Claude Code, quelques secondes après',
@@ -118,7 +123,7 @@ export const copy: Record<Lang, Copy> = {
         '« Reprendre au terminal » rouvre la session dans Claude Code, avec tout son contexte.',
       ],
       note: 'La dictée reste sur le Mac. La question transcrite, elle, part chez Claude Code.',
-      figure: 'Fig. 2 · La fenêtre de Voix Fluide, avec deux mini-sessions.',
+      figure: 'Fig. 3 · La page Claude Code de l’app, avec deux mini-sessions.',
     },
     tryIt: {
       kicker: 'V. L’essayer',
@@ -153,6 +158,7 @@ export const copy: Record<Lang, Copy> = {
         'The threshold is now 0.4 seconds.',
       ],
       cue: 'Scroll',
+      keys: ['Press [⌥ Right] to dictate.', 'Hold [⌘ Right] to ask Claude Code.'],
     },
     how: {
       kicker: 'I. The gesture',
@@ -160,7 +166,7 @@ export const copy: Record<Lang, Copy> = {
       steps: [
         {
           word: 'Press',
-          body: 'Right Option (⌥). One press starts listening, a second one stops. In Automatic mode, hold the key to talk: anything over 0.4 s counts as a hold.',
+          body: 'On [⌥ Right]. In Toggle, one press starts listening and a second one stops it; in Hold, it lasts as long as the key is down; in Automatic, anything over 0.4 s counts as a hold.',
         },
         {
           word: 'Say it',
@@ -168,9 +174,11 @@ export const copy: Record<Lang, Copy> = {
         },
         {
           word: 'Pasted',
-          body: 'The text lands at the cursor, through a ⌘V. Your clipboard is put back the way it was.',
+          body: 'The text lands at the cursor, through a [⌘ V]. Your clipboard is put back the way it was.',
         },
       ],
+      figure: 'Fig. 1 · The app’s home: the button, and the two keys (French interface).',
+      menubar: 'And in the menu bar, the Voix Fluide icon: the app’s state, the last dictation to copy, the microphone to use.',
     },
     local: {
       kicker: 'II. The place',
@@ -193,12 +201,12 @@ export const copy: Record<Lang, Copy> = {
         { label: 'Pasted', caption: 'The sentence shows for a moment, then the pill is gone.' },
       ],
       pasted: 'Hello, this is a voice dictation test. The text appears in the window.',
-      figure: 'Fig. 1 · The pill, 50 points above the bottom of the screen.',
+      figure: 'Fig. 2 · The pill, 50 points above the bottom of the screen.',
     },
     claude: {
       kicker: 'IV. The second key',
       title: 'Ask your code a question.',
-      body: 'Right Command (⌘) records a question instead of a dictation. Name the repository in the sentence: Voix Fluide runs Claude Code in that folder, then reads the answer aloud.',
+      body: '[⌘ Right] records a question instead of a dictation. Name the repository in the sentence: Voix Fluide runs Claude Code in that folder, then reads the answer aloud.',
       qLabel: 'You, out loud',
       question: '“In voix fluide, where is the threshold between a tap and a hold set?”',
       aLabel: 'Claude Code, a few seconds later',
@@ -210,7 +218,7 @@ export const copy: Record<Lang, Copy> = {
         '“Reprendre au terminal” reopens the session in Claude Code, with all its context.',
       ],
       note: 'Dictation stays on the Mac. The transcribed question, however, goes to Claude Code.',
-      figure: 'Fig. 2 · The Voix Fluide window, with two mini-sessions (French interface).',
+      figure: 'Fig. 3 · The app’s Claude Code page, with two mini-sessions (French interface).',
     },
     tryIt: {
       kicker: 'V. Try it',

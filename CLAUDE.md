@@ -56,9 +56,9 @@ Everything the app writes lives in `~/Library/Application Support/VoixFluide/` (
 
 `site/` is the presentation page, published at <https://c2-poly.github.io/voix-fluide/> by `.github/workflows/pages.yml` on every merge into `main` that touches it (a pull request only builds it). Vite, React, TypeScript, Tailwind 4, GSAP (ScrollTrigger, SplitText, DrawSVG) and Lenis; `npm` from inside `site/`: `npm install`, `npm run dev` (served under `/voix-fluide/`), `npm run build` (typecheck and build).
 
-- Its text lives in `src/i18n.ts`, in French and English: change both together, and keep every figure true to `MECHANICS.md` and the code.
-- Look: "paper and ink" (paper `#f2ece1`, ink `#16130f`, one vermilion accent, Fraunces and IBM Plex Mono). No purple gradient, glass effect or particle background.
-- `public/fenetre.png` is the window screenshot (`VF_SESSIONS=1 … --screenshot`); retake it when the window changes. The pill is redrawn in HTML (`components/Pill.tsx`), not a picture.
+- Its text lives in `src/i18n.ts`, in French and English: change both together, and keep every figure true to `MECHANICS.md` and the code. `[⌥ droite]` in a string is drawn as a keycap, like the app's.
+- Look: "night ink", the app's palette on an editorial layout. Tokens in `src/index.css` follow the window in `main.rs`: night `#0b0f1a` with the window's gradient to `#0c1a33`, text `#f2f4f8`, muted `#9ba3b4`, lines `#262c3c`, one accent `#1a75ff`; type in Fraunces and IBM Plex Mono. When the app's colours change, change these tokens with them. No purple gradient, glass effect or particle background.
+- `public/accueil.jpg` and `public/claude.jpg` are the window's Home and Claude Code pages (`VF_SESSIONS=1 VF_PAGE=<home|claude> … --screenshot`, then JPEG at 1600 px wide, the Claude page cropped to its first two sessions); retake them when the window changes. The pill is redrawn in HTML (`components/Pill.tsx`), not a picture.
 - Every animation goes through `gsap.matchMedia()` or checks `reducedMotion()`, so the page stays still with "Reduce motion".
 
 ## Work items (GitHub)
