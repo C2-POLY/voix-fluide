@@ -2,6 +2,7 @@ mod claude;
 mod engine;
 mod icon;
 mod mac;
+mod tray;
 mod whisper;
 
 use egui::{Align, Color32, CornerRadius, FontId, Layout, Margin, RichText, Sense, Stroke, Vec2};
@@ -182,6 +183,8 @@ struct App {
     overlay_pos: Option<egui::Pos2>,
     /// A short note at the bottom of the window and the time it goes away.
     toast: Option<(String, f64, bool)>,
+    /// The icon and menu in the menu bar (none in screenshot runs).
+    tray: Option<tray::Tray>,
 }
 
 /// Height of the macOS title bar the content now runs under, in points.
@@ -325,6 +328,11 @@ impl App {
             drop(sh);
             None
         };
+        let tray = if handles.is_some() {
+            tray::Tray::new(&cc.egui_ctx).map_err(|e| eprintln!("menu bar icon: {e}")).ok()
+        } else {
+            None
+        };
         let logo_px = ((LOGO_PT * cc.egui_ctx.pixels_per_point()).ceil() as u32).max(56);
         let logo = cc.egui_ctx.load_texture(
             "logo-mark",
@@ -352,6 +360,7 @@ impl App {
             overlay_pos: None,
             // VF_TOAST=<text> (screenshots): show a toast that never goes away.
             toast: std::env::var("VF_TOAST").ok().map(|t| (t, f64::INFINITY, true)),
+            tray,
         }
     }
 
@@ -924,6 +933,27 @@ impl eframe::App for App {
         let (phase, levels, model, last, history, message, mut settings, elapsed, mic_dead, last_wav, target, sessions) = snapshot;
         let mic_blocked = matches!(self.mic_access, mac::MicAccess::Denied | mac::MicAccess::Restricted | mac::MicAccess::NotAsked);
         let before = settings.clone();
+
+        // Menu bar: show the state, then apply the clicks (a mic choice goes through
+        // `settings`, saved below like the window's combobox).
+        if let Some(tray) = &mut self.tray {
+            tray.refresh(phase, &model, settings.key.label, !last.is_empty(), &self.devices, settings.mic.as_deref());
+            for action in tray.poll() {
+                match action {
+                    tray::TrayAction::CopyLast => mac::copy_text(&last),
+                    tray::TrayAction::ShowWindow => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    tray::TrayAction::SetMic(mic) => settings.mic = mic,
+                    tray::TrayAction::Quit => {
+                        self.quitting = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
+        }
 
         let (status_txt, status_col) = match &model {
             ModelState::Ready(s) => (s.clone(), GREEN),
