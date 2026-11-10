@@ -118,18 +118,46 @@ body::before {
   }
 }
 
-.dots span {
-  animation: dot 1.2s ease-in-out infinite;
+/* Recording: the red dot breathes inside its halo */
+.pulse::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.28;
+  animation: halo 1.6s ease-in-out infinite;
 }
 
-@keyframes dot {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
+@keyframes halo {
   50% {
-    opacity: 1;
+    transform: scale(1.5);
+    opacity: 0.12;
   }
+}
+
+/* Transcribing: a bump travels left to right over the blue bars */
+.travel {
+  opacity: 0.3;
+  transform: scaleY(0.4);
+  animation: travel 1.6s ease-in-out infinite;
+}
+
+@keyframes travel {
+  0%,
+  45%,
+  100% {
+    opacity: 0.3;
+    transform: scaleY(0.4);
+  }
+  20% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+.caret-blink {
+  animation: blink 1.05s steps(1) infinite;
 }
 
 a:focus-visible,
@@ -140,8 +168,14 @@ button:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .caret,
+  .caret-blink,
   .bar,
-  .dots span {
+  .travel,
+  .pulse::after {
     animation: none;
+  }
+  .travel {
+    opacity: 0.7;
+    transform: none;
   }
 }
