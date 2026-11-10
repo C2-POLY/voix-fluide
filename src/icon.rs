@@ -79,7 +79,36 @@ fn over(px: &mut [f32; 4], color: [f32; 3], coverage: f32) {
 /// the whole 1024-unit icon; without, only the mark, cropped to 200..824 so it fills the image.
 pub fn render(size: u32, with_background: bool) -> Vec<u8> {
     let (origin, span) = if with_background { (0.0, 1024.0) } else { (200.0, 624.0) };
-    let scale = size as f32 / span; // pixels per design unit
+    paint(size, size, (origin, origin), size as f32 / span, with_background, false)
+}
+
+/// The mark as a macOS "template" image for the menu bar: the wave and the caret in
+/// opaque black on a transparent background (macOS tints it for light and dark bars),
+/// cropped tight around the mark. Returns the RGBA pixels, width and height.
+pub fn render_template(height: u32) -> (Vec<u8>, u32, u32) {
+    let (x0, y0, x1, y1) = mark_bounds();
+    let scale = height as f32 / (y1 - y0);
+    let width = ((x1 - x0) * scale).ceil() as u32;
+    (paint(width, height, (x0, y0), scale, false, true), width, height)
+}
+
+/// Bounding box of the wave and the caret, in design units, with a small margin.
+fn mark_bounds() -> (f32, f32, f32, f32) {
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for p in wave_polyline() {
+        x0 = x0.min(p.0);
+        y0 = y0.min(p.1);
+        x1 = x1.max(p.0);
+        y1 = y1.max(p.1);
+    }
+    let m = WAVE_HALF_WIDTH + 8.0;
+    // The caret spans 742..782 × 372..652.
+    (x0 - m, (y0 - m).min(364.0), 790.0, (y1 + m).max(660.0))
+}
+
+/// Draws the logo into a `width`×`height` image whose top-left pixel is at `origin`
+/// (design units), with `scale` pixels per design unit.
+fn paint(width: u32, height: u32, origin: Pt, scale: f32, with_background: bool, template: bool) -> Vec<u8> {
     let wave = wave_polyline();
     let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
     for p in &wave {
@@ -90,11 +119,12 @@ pub fn render(size: u32, with_background: bool) -> Vec<u8> {
     }
     let margin = WAVE_HALF_WIDTH + 2.0;
     let (x0, y0, x1, y1) = (x0 - margin, y0 - margin, x1 + margin, y1 + margin);
+    let (wave_color, caret_color) = if template { ([0.0; 3], [0.0; 3]) } else { (WAVE_COLOR, CARET_COLOR) };
 
-    let mut out = vec![0u8; (size * size * 4) as usize];
-    for py in 0..size {
-        for px in 0..size {
-            let p = (origin + (px as f32 + 0.5) / scale, origin + (py as f32 + 0.5) / scale);
+    let mut out = vec![0u8; (width * height * 4) as usize];
+    for py in 0..height {
+        for px in 0..width {
+            let p = (origin.0 + (px as f32 + 0.5) / scale, origin.1 + (py as f32 + 0.5) / scale);
             let mut acc = [0.0f32; 4];
 
             if with_background {
@@ -106,13 +136,13 @@ pub fn render(size: u32, with_background: bool) -> Vec<u8> {
 
             if p.0 >= x0 && p.0 <= x1 && p.1 >= y0 && p.1 <= y1 {
                 let d = wave.windows(2).map(|s| dist_segment(p, s[0], s[1])).fold(f32::MAX, f32::min) - WAVE_HALF_WIDTH;
-                over(&mut acc, WAVE_COLOR, (0.5 - d * scale).clamp(0.0, 1.0));
+                over(&mut acc, wave_color, (0.5 - d * scale).clamp(0.0, 1.0));
             }
 
             let d = sd_round_rect(p, (762.0, 512.0), (20.0, 140.0), 20.0);
-            over(&mut acc, CARET_COLOR, (0.5 - d * scale).clamp(0.0, 1.0));
+            over(&mut acc, caret_color, (0.5 - d * scale).clamp(0.0, 1.0));
 
-            let i = ((py * size + px) * 4) as usize;
+            let i = ((py * width + px) * 4) as usize;
             for k in 0..3 {
                 out[i + k] = acc[k].round().clamp(0.0, 255.0) as u8;
             }
@@ -155,6 +185,20 @@ mod tests {
         assert!(tail[3] == 255 && tail[0] > 200, "white tail: {tail:?}");
     }
 
+    #[test]
+    fn template_is_black_on_transparent() {
+        let (img, w, h) = render_template(36);
+        assert_eq!(h, 36);
+        assert!(w > h && w < 3 * h, "wide mark: {w}x{h}");
+        assert_eq!(img.len(), (w * h * 4) as usize);
+        assert!(img.chunks(4).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0), "only black pixels");
+        assert_eq!(img[3], 0, "corner is transparent");
+        assert!(img.chunks(4).any(|p| p[3] == 255), "some opaque pixels");
+        // The caret touches neither the right nor the bottom edge.
+        let last_col = (0..h).map(|y| img[((y * w + w - 1) * 4 + 3) as usize]).max().unwrap();
+        assert!(last_col < 128, "margin on the right: {last_col}");
+    }
+
     /// Writes the icon pictures to look at them: `cargo test write_icon_pngs -- --ignored`.
     #[test]
     #[ignore]
@@ -163,5 +207,7 @@ mod tests {
             let img = image::RgbaImage::from_raw(size, size, render(size, bg)).unwrap();
             img.save(format!("/tmp/{name}.png")).unwrap();
         }
+        let (px, w, h) = render_template(36);
+        image::RgbaImage::from_raw(w, h, px).unwrap().save("/tmp/vf-template-36.png").unwrap();
     }
 }

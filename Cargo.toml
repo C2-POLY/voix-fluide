@@ -21,6 +21,7 @@ ureq = "2"
 arboard = "3"
 image = { version = "0.25", default-features = false, features = ["png"] }
 rand = "0.8"
+tray-icon = { version = "0.24", default-features = false }
 
 [profile.dev]
 opt-level = 1
