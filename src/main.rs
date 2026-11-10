@@ -72,7 +72,10 @@ fn main() -> eframe::Result<()> {
             // sidebar reaches the top and the traffic lights sit on it.
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
-            .with_title_shown(false),
+            .with_title_shown(false)
+            // Lets the floating pill have rounded, see-through corners: transparency is
+            // chosen once for the GL context, so the root window must ask for it.
+            .with_transparent(true),
         ..Default::default()
     };
     eframe::run_native(
@@ -679,99 +682,163 @@ impl App {
 fn draw_pill(ui: &egui::Ui, canvas: egui::Rect, l: PillLayout, top: bool, phase: Phase, levels: &[f32], elapsed: Option<f32>, note: Option<&str>, has_message: bool, claude: Option<(&str, ClaudeTone)>, now: f64) {
     let p = ui.painter();
     let claude = claude.filter(|_| phase == Phase::Idle);
-    let claude_color = |tone: ClaudeTone| match tone {
-        ClaudeTone::Running => ACCENT,
-        ClaudeTone::Done => GREEN,
-        ClaudeTone::Failed => AMBER,
-    };
-    // Text shown under the waveform.
-    let preview: Option<(String, Color32)> = if !l.shows_preview {
+    let pill_mode = !l.shows_preview;
+
+    // Text under the header, as today: it sets the pill's height, so the height never changes.
+    let sizing: Option<String> = if pill_mode {
         None
     } else {
         match phase {
             Phase::Recording => None,
-            Phase::Transcribing => Some(("Transcription…".to_string(), MUTED)),
+            Phase::Transcribing => Some("Transcription…".to_string()),
             Phase::Idle => match claude {
-                Some((t, tone)) => Some((t.to_string(), if tone == ClaudeTone::Failed { AMBER } else { TEXT })),
-                None => note.map(|t| (t.to_string(), if has_message { AMBER } else { TEXT })),
+                Some((t, _)) => Some(t.to_string()),
+                None => note.map(str::to_string),
             },
         }
     };
-    let galley = preview.map(|(t, c)| {
-        p.layout(t, FontId::proportional(l.trans_font), c, l.preview_max_width)
-    });
-    let text_h = galley.as_ref().map(|g| g.size().y + 6.0).unwrap_or(0.0);
-    let pill_mode = !l.shows_preview;
+    let sizing_galley = sizing.map(|t| p.layout(t, FontId::proportional(l.trans_font), TEXT, l.preview_max_width));
+    let text_h = sizing_galley.as_ref().map(|g| g.size().y + 6.0).unwrap_or(0.0);
     let head_h = if pill_mode { l.overlay_height } else { l.v_padding * 2.0 + l.waveform_height };
     let height = (head_h + text_h).min(canvas.height());
     let x0 = canvas.center().x - l.container_width / 2.0;
     let y0 = if top { canvas.top() } else { canvas.bottom() - height };
     let rect = egui::Rect::from_min_size(egui::pos2(x0, y0), Vec2::new(l.container_width, height)).shrink(0.5);
-    p.rect(
-        rect,
-        CornerRadius::same(l.corner_radius as u8),
-        Color32::from_rgba_unmultiplied(0, 0, 0, 235),
-        Stroke::new(1.0_f32, Color32::from_rgb(60, 64, 76)),
-        egui::StrokeKind::Inside,
-    );
+    let stroke = if phase == Phase::Transcribing { Color32::from_rgb(0x1A, 0x3A, 0x6E) } else { Color32::from_rgb(0x2E, 0x35, 0x46) };
+    p.rect(rect, CornerRadius::same(l.corner_radius as u8), Color32::from_rgba_unmultiplied(0, 0, 0, 235), Stroke::new(1.0_f32, stroke), egui::StrokeKind::Inside);
     let wave_cy = rect.top() + head_h / 2.0;
-
-    // Waveform: bar_count bars between min_bar and max_bar high.
+    let bar_radius = CornerRadius::same((l.bar_width / 2.0).ceil() as u8);
     let total = l.bar_count as f32 * l.bar_width + (l.bar_count as f32 - 1.0) * l.bar_spacing;
-    let bx0 = rect.center().x - total / 2.0;
-    let start = levels.len().saturating_sub(l.bar_count);
-    for i in 0..l.bar_count {
-        let lvl = match (phase, claude) {
-            (Phase::Recording, _) => levels.get(start + i).copied().unwrap_or(0.0),
-            (Phase::Transcribing, _) | (Phase::Idle, Some((_, ClaudeTone::Running))) => 0.3 + 0.3 * ((now as f32 * 6.0 + i as f32 * 0.6).sin()),
-            (Phase::Idle, _) => 0.0,
-        }
-        .clamp(0.0, 1.0);
-        let h = l.min_bar + lvl * (l.max_bar - l.min_bar);
-        let x = bx0 + i as f32 * (l.bar_width + l.bar_spacing);
-        let r = egui::Rect::from_center_size(egui::pos2(x + l.bar_width / 2.0, wave_cy), Vec2::new(l.bar_width, h));
-        let col = match phase {
-            Phase::Recording => Color32::WHITE,
-            Phase::Transcribing => ACCENT,
-            Phase::Idle if claude.is_some() => claude_color(claude.unwrap().1),
-            Phase::Idle if has_message => AMBER,
-            Phase::Idle => GREEN,
-        };
-        p.rect_filled(r, CornerRadius::same((l.bar_width / 2.0).ceil() as u8), col);
-    }
 
-    // Small labels left (state) and right (time), FluidVoice's mode label size.
-    if l.shows_mode_label && !pill_mode {
-        let (left, dot) = match phase {
-            Phase::Recording => ("Écoute", RED),
-            Phase::Transcribing => ("Transcription", ACCENT),
-            Phase::Idle if claude.is_some() => ("Claude", claude_color(claude.unwrap().1)),
-            Phase::Idle if has_message => ("Info", AMBER),
-            Phase::Idle => ("Collé", GREEN),
-        };
-        let lx = rect.left() + l.h_padding;
-        let pulse = if phase == Phase::Recording { 0.75 + 0.25 * ((now * 4.0).sin() as f32) } else { 1.0 };
-        p.circle_filled(egui::pos2(lx + 4.0, wave_cy), 4.0 * pulse, dot);
-        // Only when there is room beside the waveform and the text below doesn't already say it.
-        let room = (bx0 - lx - 13.0) > 70.0;
-        if room && (phase == Phase::Recording || phase == Phase::Idle) {
-            p.text(egui::pos2(lx + 13.0, wave_cy), egui::Align2::LEFT_CENTER, left, FontId::proportional(l.mode_font), MUTED);
-        }
-        if phase == Phase::Recording {
-            let secs = elapsed.unwrap_or(0.0) as u32;
-            p.text(
-                egui::pos2(rect.right() - l.h_padding, wave_cy),
-                egui::Align2::RIGHT_CENTER,
-                format!("{}:{:02}", secs / 60, secs % 60),
-                FontId::proportional(l.mode_font),
-                MUTED,
-            );
-        }
-    }
+    // A bump travelling left to right over `n` bars: 1 under it, fading with the distance.
+    let wave = |i: usize, n: usize| -> f32 {
+        let pos = (now as f32 * 2.2) % (n as f32 + 3.0) - 1.5;
+        let d = i as f32 - pos;
+        (-(d * d) / 2.0).exp()
+    };
+    let bar = |cx: f32, cy: f32, w: f32, h: f32, col: Color32, radius: CornerRadius| {
+        p.rect_filled(egui::Rect::from_center_size(egui::pos2(cx, cy), Vec2::new(w, h)), radius, col);
+    };
 
-    if let Some(g) = galley {
-        let pos = egui::pos2(rect.center().x - g.size().x / 2.0, rect.top() + head_h - l.v_padding / 2.0);
-        p.galley(pos, g, TEXT);
+    let lx = rect.left() + l.h_padding;
+    let green_text = Color32::from_rgb(0x5B, 0xD9, 0x8A);
+
+    match phase {
+        Phase::Recording => {
+            let bx0 = rect.center().x - total / 2.0;
+            let start = levels.len().saturating_sub(l.bar_count);
+            for i in 0..l.bar_count {
+                let lvl = levels.get(start + i).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+                let h = l.min_bar + lvl * (l.max_bar - l.min_bar);
+                bar(bx0 + i as f32 * (l.bar_width + l.bar_spacing) + l.bar_width / 2.0, wave_cy, l.bar_width, h, Color32::WHITE, bar_radius);
+            }
+            if l.shows_mode_label && !pill_mode {
+                // The logo's ending: a flat dash, then the blue caret.
+                let dash_x = bx0 + total + l.bar_spacing + 2.0;
+                let dash_w = l.bar_width * 2.5;
+                bar(dash_x + dash_w / 2.0, wave_cy, dash_w, l.bar_width, Color32::WHITE, CornerRadius::same((l.bar_width / 2.0).ceil() as u8));
+                let caret_h = (l.max_bar * 0.6).max(10.0);
+                bar(dash_x + dash_w + l.bar_spacing + 1.0, wave_cy, 2.0, caret_h, ACCENT, CornerRadius::same(1));
+
+                let pulse = 0.75 + 0.25 * ((now * 4.0).sin() as f32);
+                let c = egui::pos2(lx + 5.0, wave_cy);
+                p.circle_filled(c, 4.5 + 3.0 * pulse, Color32::from_rgba_unmultiplied(RED.r(), RED.g(), RED.b(), (70.0 * pulse) as u8));
+                p.circle_filled(c, 4.0 * pulse, RED);
+                // Only when there is room beside the waveform.
+                if (bx0 - lx - 13.0) > 70.0 {
+                    p.text(egui::pos2(lx + 15.0, wave_cy), egui::Align2::LEFT_CENTER, "Écoute", FontId::proportional(l.mode_font), MUTED);
+                }
+                let secs = elapsed.unwrap_or(0.0) as u32;
+                p.text(egui::pos2(rect.right() - l.h_padding, wave_cy), egui::Align2::RIGHT_CENTER, format!("{}:{:02}", secs / 60, secs % 60), FontId::monospace(l.mode_font), MUTED);
+            }
+        }
+        Phase::Transcribing => {
+            let light_blue = Color32::from_rgb(0x9C, 0xC2, 0xFF);
+            let label = (!pill_mode).then(|| p.layout("Transcription…".to_string(), FontId::proportional(l.trans_font), light_blue, l.preview_max_width));
+            let gap = 10.0;
+            let inline = label.as_ref().is_some_and(|g| total + gap + g.size().x <= l.container_width - 2.0 * l.h_padding);
+            let group_w = total + label.as_ref().filter(|_| inline).map_or(0.0, |g| gap + g.size().x);
+            let (cy, bx0) = if inline { (rect.center().y, rect.center().x - group_w / 2.0) } else { (wave_cy, rect.center().x - total / 2.0) };
+            for i in 0..l.bar_count {
+                let k = wave(i, l.bar_count);
+                let h = l.min_bar + (0.25 + 0.75 * k) * (l.max_bar - l.min_bar) * 0.8;
+                bar(bx0 + i as f32 * (l.bar_width + l.bar_spacing) + l.bar_width / 2.0, cy, l.bar_width, h, ACCENT.gamma_multiply(0.3 + 0.7 * k), bar_radius);
+            }
+            if let Some(g) = label {
+                let pos = if inline {
+                    egui::pos2(bx0 + total + gap, cy - g.size().y / 2.0)
+                } else {
+                    egui::pos2(rect.center().x - g.size().x / 2.0, rect.top() + head_h - l.v_padding / 2.0)
+                };
+                p.galley(pos, g, light_blue);
+            }
+        }
+        Phase::Idle if pill_mode => {
+            // The minimal state: bars only.
+            let bx0 = rect.center().x - total / 2.0;
+            for i in 0..l.bar_count {
+                bar(bx0 + i as f32 * (l.bar_width + l.bar_spacing) + l.bar_width / 2.0, wave_cy, l.bar_width, l.min_bar, if has_message { AMBER } else { GREEN }, bar_radius);
+            }
+        }
+        Phase::Idle => {
+            // Header row: a badge circle and a title (or "Claude · repo" and a state badge), then the text on the same left edge.
+            let font = FontId::proportional(11.0);
+            let (body, body_color): (Option<String>, Color32) = match claude {
+                Some((t, tone)) => {
+                    let body = match tone {
+                        ClaudeTone::Running => None,
+                        ClaudeTone::Done => t.split_once('\n').map(|(_, b)| b.to_string()),
+                        ClaudeTone::Failed => t.split_once(" · ").map(|(_, e)| e.to_string()),
+                    };
+                    (body, TEXT)
+                }
+                None => (note.map(str::to_string), if has_message { Color32::from_rgb(0xFF, 0xE2, 0xA8) } else { TEXT }),
+            };
+            let cy = wave_cy;
+            if let Some((t, tone)) = claude {
+                let repo = t.split(" · ").next().unwrap_or("");
+                let title = p.layout_no_wrap(format!("Claude · {repo}"), font.clone(), MUTED);
+                let tw = title.size().x.min(l.container_width - 2.0 * l.h_padding - 60.0);
+                p.galley(egui::pos2(lx, cy - title.size().y / 2.0), title, MUTED);
+                let (fill, fg, label) = match tone {
+                    ClaudeTone::Done => (Color32::from_rgb(0x0F, 0x2A, 0x1A), green_text, "terminé"),
+                    ClaudeTone::Running => (Color32::from_rgb(0x0D, 0x22, 0x44), Color32::from_rgb(0x6F, 0xA8, 0xFF), "en cours"),
+                    ClaudeTone::Failed => (Color32::from_rgb(0x3A, 0x22, 0x08), AMBER, "erreur"),
+                };
+                let g = p.layout_no_wrap(label.to_string(), font.clone(), fg);
+                let br = egui::Rect::from_min_size(egui::pos2(lx + tw + 8.0, cy - g.size().y / 2.0 - 2.0), Vec2::new(g.size().x + 12.0, g.size().y + 4.0));
+                p.rect_filled(br, CornerRadius::same(6), fill);
+                p.galley(egui::pos2(br.left() + 6.0, br.top() + 2.0), g, fg);
+                if tone == ClaudeTone::Running {
+                    // A small travelling wave at the right end of the header.
+                    let (n, w, sp) = (5usize, 2.5_f32, 3.0_f32);
+                    let x_end = rect.right() - l.h_padding;
+                    for i in 0..n {
+                        let k = wave(i, n);
+                        let h = 4.0 + 8.0 * k;
+                        bar(x_end - (n - i) as f32 * (w + sp) + sp + w / 2.0, cy, w, h, ACCENT.gamma_multiply(0.3 + 0.7 * k), CornerRadius::same(2));
+                    }
+                }
+            } else if note.is_some() {
+                let (fill, fg, title) = if has_message { (Color32::from_rgb(0x3A, 0x22, 0x08), AMBER, "Info") } else { (Color32::from_rgb(0x0F, 0x2A, 0x1A), green_text, "Collé") };
+                let c = egui::pos2(lx + 7.0, cy);
+                p.circle_filled(c, 7.0, fill);
+                if has_message {
+                    let s = Stroke::new(1.6_f32, fg);
+                    p.line_segment([c + Vec2::new(0.0, -3.4), c + Vec2::new(0.0, 0.8)], s);
+                    p.circle_filled(c + Vec2::new(0.0, 3.2), 1.0, fg);
+                } else {
+                    let s = Stroke::new(1.6_f32, fg);
+                    p.line_segment([c + Vec2::new(-3.2, 0.2), c + Vec2::new(-1.0, 2.5)], s);
+                    p.line_segment([c + Vec2::new(-1.0, 2.5), c + Vec2::new(3.2, -2.4)], s);
+                }
+                p.text(egui::pos2(lx + 18.0, cy), egui::Align2::LEFT_CENTER, title, font, fg);
+            }
+            if let Some(b) = body {
+                let g = p.layout(b, FontId::proportional(l.trans_font), body_color, l.preview_max_width);
+                p.galley(egui::pos2(lx, rect.top() + head_h - l.v_padding / 2.0), g, body_color);
+            }
+        }
     }
 }
 
@@ -840,8 +907,9 @@ impl App {
 
 impl eframe::App for App {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        // Opaque: a see-through main window shows the desktop behind the title bar.
-        [BG_TOP.r() as f32 / 255.0, BG_TOP.g() as f32 / 255.0, BG_TOP.b() as f32 / 255.0, 1.0]
+        // Transparent so the pill keeps see-through corners. The main window stays opaque:
+        // `paint_background` fills all of it, title bar included (full-size content view).
+        [0.0; 4]
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
