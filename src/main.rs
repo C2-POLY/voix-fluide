@@ -31,6 +31,10 @@ fn main() -> eframe::Result<()> {
     if args.iter().any(|a| a == mac::SIGNATURE_CHECK_ARG) {
         return Ok(());
     }
+    if args.iter().any(|a| a == "--version") {
+        println!("{}", version_line(env!("CARGO_PKG_VERSION"), env!("VF_COMMIT"), env!("VF_RELEASE") == "1"));
+        return Ok(());
+    }
     let screenshot = args
         .iter()
         .position(|a| a == "--screenshot")
@@ -1537,5 +1541,24 @@ impl eframe::App for App {
         }
 
         self.screenshot_step(ctx);
+    }
+}
+
+/// The `--version` line: `voix-fluide 0.3.0 (f0a67a9c1d2e, release)`.
+fn version_line(version: &str, commit: &str, release: bool) -> String {
+    let short = &commit[..commit.len().min(12)];
+    let kind = if release { "release" } else { "build locale" };
+    format!("voix-fluide {version} ({short}, {kind})")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::version_line;
+
+    #[test]
+    fn version_line_shortens_the_commit() {
+        let sha = "f0a67a9c1d2e3f405162738495a6b7c8d9e0f1a2";
+        assert_eq!(version_line("0.3.0", sha, true), "voix-fluide 0.3.0 (f0a67a9c1d2e, release)");
+        assert_eq!(version_line("0.3.0", "unknown", false), "voix-fluide 0.3.0 (unknown, build locale)");
     }
 }
