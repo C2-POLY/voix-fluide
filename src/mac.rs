@@ -244,6 +244,10 @@ extern "C" {
 }
 
 pub(crate) const CHILD_ENV: &str = "VOIX_FLUIDE_OWN_PERMISSIONS";
+/// The program the launcher was started from (for example the binary inside
+/// `Voix Fluide.app`), passed to the copy: the copy runs from `programme/`, so its own
+/// `current_exe()` does not say where the app is installed (see `update::launcher_exe`).
+pub(crate) const LAUNCHER_ENV: &str = "VOIX_FLUIDE_LAUNCHER";
 
 /// When started by another app (Craft Anything, a terminal…), macOS asks *that*
 /// app's permission for the microphone and silently feeds zeros if it has none.
@@ -262,14 +266,15 @@ pub fn run_with_own_permissions() {
         return;
     }
     use std::ffi::CString;
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(launcher) = std::env::current_exe() else { return };
     // Run a signed copy so macOS keeps the permissions across updates.
-    let exe = stable_copy(&exe).unwrap_or(exe);
+    let exe = stable_copy(&launcher).unwrap_or_else(|| launcher.clone());
     let Ok(path) = CString::new(exe.as_os_str().as_encoded_bytes()) else { return };
     let args: Vec<CString> = std::env::args_os()
         .filter_map(|a| CString::new(a.as_encoded_bytes()).ok())
         .collect();
     let mut envs: Vec<CString> = std::env::vars_os()
+        .filter(|(k, _)| k != LAUNCHER_ENV)
         .filter_map(|(k, v)| {
             let mut kv = k.as_encoded_bytes().to_vec();
             kv.push(b'=');
@@ -278,6 +283,11 @@ pub fn run_with_own_permissions() {
         })
         .collect();
     envs.push(CString::new(format!("{CHILD_ENV}=1")).unwrap());
+    let mut launcher_kv = format!("{LAUNCHER_ENV}=").into_bytes();
+    launcher_kv.extend_from_slice(launcher.as_os_str().as_encoded_bytes());
+    if let Ok(kv) = CString::new(launcher_kv) {
+        envs.push(kv);
+    }
     let mut argv: Vec<*mut libc::c_char> = args.iter().map(|a| a.as_ptr() as *mut _).collect();
     argv.push(std::ptr::null_mut());
     let mut envp: Vec<*mut libc::c_char> = envs.iter().map(|e| e.as_ptr() as *mut _).collect();

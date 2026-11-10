@@ -37,6 +37,18 @@ fn main() -> eframe::Result<()> {
         println!("{}", version_line(env!("CARGO_PKG_VERSION"), env!("VF_COMMIT"), env!("VF_RELEASE") == "1"));
         return Ok(());
     }
+    // --icon-png <size> <out.png>: the app icon, for scripts/bundle.sh (icon.icns).
+    if let Some(i) = args.iter().position(|a| a == "--icon-png") {
+        let (Some(size), Some(out)) = (args.get(i + 1).and_then(|s| s.parse::<u32>().ok()), args.get(i + 2)) else {
+            eprintln!("usage: voix-fluide --icon-png <size> <out.png>");
+            std::process::exit(2);
+        };
+        if let Err(e) = image::save_buffer(out, &icon::render(size, true), size, size, image::ColorType::Rgba8) {
+            eprintln!("{out}: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     let screenshot = args
         .iter()
         .position(|a| a == "--screenshot")
@@ -1686,7 +1698,7 @@ impl eframe::App for App {
                                     UpdateState::Idle => ("Pas encore vérifié.".to_string(), MUTED),
                                     UpdateState::Checking => ("Recherche…".to_string(), MUTED),
                                     UpdateState::UpToDate => ("À jour".to_string(), GREEN),
-                                    UpdateState::Available { version, commit, .. } => (format!("Version {version} disponible (commit {})", &commit[..commit.len().min(7)]), ACCENT),
+                                    UpdateState::Available(r) => (format!("Version {} disponible (commit {})", r.version, &r.commit[..r.commit.len().min(7)]), ACCENT),
                                     UpdateState::Downloading => ("Téléchargement…".to_string(), ACCENT),
                                     UpdateState::Failed(e) => (e.clone(), AMBER),
                                 };
@@ -1695,15 +1707,14 @@ impl eframe::App for App {
                                     ui.painter().circle_filled(r.center(), 5.0, col);
                                     ui.add(egui::Label::new(RichText::new(line).size(15.0).strong().color(TEXT)).wrap());
                                 });
-                                if let UpdateState::Available { version, commit, sha256 } = &update_state {
+                                if let UpdateState::Available(release) = &update_state {
                                     ui.label(RichText::new("Le fichier est vérifié (SHA-256) avant de remplacer cette version, puis Voix Fluide se relance.").size(12.0).color(MUTED));
                                     ui.add_space(4.0);
                                     let running = sessions.iter().filter(|s| s.state == SessionState::Running).count();
                                     let blocked = update::install_blocked(phase, running);
                                     let btn = egui::Button::new(RichText::new("Installer et relancer").color(Color32::WHITE)).fill(ACCENT);
                                     if ui.add_enabled(blocked.is_none(), btn).clicked() {
-                                        let release = update::Release { version: version.clone(), commit: commit.clone(), sha256: sha256.clone() };
-                                        update::spawn_install(self.update.clone(), release, self.shared.clone(), ui.ctx().clone());
+                                        update::spawn_install(self.update.clone(), release.clone(), self.shared.clone(), ui.ctx().clone());
                                     }
                                     if let Some(why) = blocked {
                                         ui.label(RichText::new(why).size(12.0).color(AMBER));

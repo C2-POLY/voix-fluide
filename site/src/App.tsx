@@ -6,6 +6,7 @@ import { WaveToText } from './components/WaveToText'
 import { Pill, type PillState } from './components/Pill'
 
 const REPO = 'https://github.com/C2-POLY/voix-fluide'
+const DMG = `${REPO}/releases/latest/download/Voix-Fluide.dmg`
 const INSTALL = ['git clone https://github.com/C2-POLY/voix-fluide.git', 'cd voix-fluide', 'cargo run']
 
 function initialLang(): Lang {
@@ -190,19 +191,22 @@ function Hero({ c }: { c: Copy }) {
       </h1>
 
       <div className="mt-12 grid gap-10 md:mt-16 md:grid-cols-12 md:gap-8">
-        <p data-hero-fade className="text-lg leading-relaxed md:col-span-4 md:text-xl">
-          <span className="float-left mt-1 mr-2 font-serif text-[3.6em] leading-[0.8] text-signal italic">
-            {c.hero.lede.charAt(0)}
-          </span>
-          {c.hero.lede.slice(1)}
-          <span className="mt-6 block space-y-2 text-base text-mist">
-            {c.hero.keys.map((k) => (
-              <span key={k} className="block">
-                {rich(k)}
-              </span>
-            ))}
-          </span>
-        </p>
+        <div data-hero-fade className="md:col-span-4">
+          <p className="text-lg leading-relaxed md:text-xl">
+            <span className="float-left mt-1 mr-2 font-serif text-[3.6em] leading-[0.8] text-signal italic">
+              {c.hero.lede.charAt(0)}
+            </span>
+            {c.hero.lede.slice(1)}
+            <span className="mt-6 block space-y-2 text-base text-mist">
+              {c.hero.keys.map((k) => (
+                <span key={k} className="block">
+                  {rich(k)}
+                </span>
+              ))}
+            </span>
+          </p>
+          <Download c={c} />
+        </div>
         <div data-hero-fade className="md:col-span-7 md:col-start-6">
           <WaveToText sentences={c.hero.sentences} />
         </div>
@@ -399,6 +403,24 @@ function ClaudeSection({ c }: { c: Copy }) {
       </Section>
       <Rule />
     </>
+  )
+}
+
+function Download({ c }: { c: Copy }) {
+  return (
+    <div className="mt-8">
+      <a
+        href={DMG}
+        className="inline-flex items-center gap-3 rounded-lg bg-signal px-5 py-3 font-mono text-[0.95rem] text-snow transition-colors hover:bg-snow hover:text-night motion-reduce:transition-none"
+      >
+        <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 2v9M4 7.5 8 11.5 12 7.5M3 14h10" />
+        </svg>
+        {c.download.label}
+      </a>
+      <p className="mt-3 font-mono text-sm text-mist">{c.download.meta}</p>
+      <p className="mt-2 max-w-[40ch] text-sm leading-relaxed text-mist">{c.download.firstOpen}</p>
+    </div>
   )
 }
 

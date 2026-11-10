@@ -1,5 +1,7 @@
-//! Updates: read the latest GitHub Release, download its binary, check it,
-//! install it in `programme/source/` and relaunch from it.
+//! Updates: read the latest GitHub Release, download it, check it, install it and
+//! relaunch. Run from `Voix Fluide.app`, it replaces the app with the one of the
+//! Release's `.dmg`; run from a bare binary (0.3.0 and older, `cargo run`), it puts
+//! the Release's binary in `programme/source/` and relaunches from it.
 
 use crate::engine::{Phase, SessionState, SharedRef};
 use std::io::{Read, Write};
@@ -9,6 +11,7 @@ use std::time::Duration;
 
 const LATEST_JSON: &str = "https://github.com/C2-POLY/voix-fluide/releases/latest/download/latest.json";
 const LATEST_BINARY: &str = "https://github.com/C2-POLY/voix-fluide/releases/latest/download/voix-fluide-aarch64-apple-darwin";
+const LATEST_DMG: &str = "https://github.com/C2-POLY/voix-fluide/releases/latest/download/Voix-Fluide.dmg";
 
 /// What the Updates page shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -16,7 +19,7 @@ pub enum UpdateState {
     Idle,
     Checking,
     UpToDate,
-    Available { version: String, commit: String, sha256: String },
+    Available(Release),
     Downloading,
     Failed(String),
 }
@@ -28,10 +31,14 @@ pub type UpdateRef = Arc<Mutex<UpdateState>>;
 pub struct Release {
     pub version: String,
     pub commit: String,
+    /// SHA-256 of the bare binary (what 0.3.0 and older install).
     pub sha256: String,
+    /// SHA-256 of `Voix-Fluide.dmg`, absent from Releases made before the .dmg.
+    pub dmg_sha256: Option<String>,
 }
 
-/// Read `latest.json`: `{"version", "commit", "sha256"}`, all non-empty strings.
+/// Read `latest.json`: `{"version", "commit", "sha256"}`, all non-empty strings,
+/// and `dmg_sha256` when the Release has a .dmg.
 pub fn parse_release(text: &str) -> Result<Release, String> {
     let v: serde_json::Value = serde_json::from_str(text).map_err(|_| "Réponse de GitHub illisible.".to_string())?;
     let field = |k: &str| {
@@ -42,7 +49,12 @@ pub fn parse_release(text: &str) -> Result<Release, String> {
             .map(String::from)
             .ok_or_else(|| format!("Réponse de GitHub incomplète (« {k} » manque)."))
     };
-    Ok(Release { version: field("version")?, commit: field("commit")?, sha256: field("sha256")? })
+    Ok(Release {
+        version: field("version")?,
+        commit: field("commit")?,
+        sha256: field("sha256")?,
+        dmg_sha256: field("dmg_sha256").ok(),
+    })
 }
 
 /// A Release is newer when its commit differs from ours (tags move during the day,
@@ -72,11 +84,12 @@ pub fn fake_state(name: &str) -> Option<UpdateState> {
     Some(match name {
         "checking" => UpdateState::Checking,
         "uptodate" => UpdateState::UpToDate,
-        "available" => UpdateState::Available {
+        "available" => UpdateState::Available(Release {
             version: env!("CARGO_PKG_VERSION").into(),
             commit: "abc1234def5678901234567890abcdef12345678".into(),
             sha256: String::new(),
-        },
+            dmg_sha256: None,
+        }),
         "downloading" => UpdateState::Downloading,
         "failed" => UpdateState::Failed("GitHub ne répond pas : vérifiez la connexion.".into()),
         _ => return None,
@@ -171,24 +184,7 @@ pub fn install(release: &Release) -> Result<PathBuf, String> {
 
 fn download_and_check(part: &Path, sha256: &str) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
-    // 34 MB: a connection timeout, then a read timeout instead of a total one.
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(10))
-        .timeout_read(Duration::from_secs(30))
-        .build();
-    let resp = agent.get(LATEST_BINARY).call().map_err(http_error)?;
-    let mut out = std::fs::File::create(part).map_err(|e| e.to_string())?;
-    let mut reader = resp.into_reader();
-    let mut buf = vec![0u8; 1 << 16];
-    loop {
-        let n = reader.read(&mut buf).map_err(|_| "Téléchargement interrompu.".to_string())?;
-        if n == 0 {
-            break;
-        }
-        out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-    }
-    out.flush().map_err(|e| e.to_string())?;
-    drop(out);
+    download(LATEST_BINARY, part)?;
     if !sha256_matches(part, sha256)? {
         return Err("Le fichier téléchargé ne correspond pas à la Release (SHA-256).".into());
     }
@@ -199,12 +195,188 @@ fn download_and_check(part: &Path, sha256: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Download `url` to `to`.
+fn download(url: &str, to: &Path) -> Result<(), String> {
+    // Tens of MB: a connection timeout, then a read timeout instead of a total one.
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout_read(Duration::from_secs(30))
+        .build();
+    let resp = agent.get(url).call().map_err(http_error)?;
+    let mut out = std::fs::File::create(to).map_err(|e| e.to_string())?;
+    let mut reader = resp.into_reader();
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = reader.read(&mut buf).map_err(|_| "Téléchargement interrompu.".to_string())?;
+        if n == 0 {
+            break;
+        }
+        out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+    }
+    out.flush().map_err(|e| e.to_string())
+}
+
+/// The program the launcher was started from: the copy in `programme/` gets it from
+/// the launcher (`mac::LAUNCHER_ENV`), otherwise it is this program.
+pub fn launcher_exe() -> Option<PathBuf> {
+    std::env::var_os(crate::mac::LAUNCHER_ENV)
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok())
+}
+
+/// The `.app` a program runs from: `X.app/Contents/MacOS/<exe>` gives `X.app`.
+pub fn bundle_of(exe: &Path) -> Option<PathBuf> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let app = contents.parent()?;
+    let is_app = app.extension().is_some_and(|x| x == "app");
+    (macos.file_name()? == "MacOS" && contents.file_name()? == "Contents" && is_app).then(|| app.to_path_buf())
+}
+
+/// The installed `Voix Fluide.app`, when Voix Fluide was started from one.
+pub fn running_bundle() -> Option<PathBuf> {
+    bundle_of(&launcher_exe()?)
+}
+
+/// Why the app at `bundle` cannot be replaced where it is, from its path alone.
+pub fn bundle_place_refused(bundle: &Path) -> Option<String> {
+    if bundle.components().any(|c| c.as_os_str() == "AppTranslocation") {
+        return Some("macOS fait tourner Voix Fluide depuis une copie temporaire. Glissez Voix Fluide.app dans Applications, ouvrez-la depuis là, puis mettez à jour.".into());
+    }
+    if bundle.starts_with("/Volumes") && bundle.parent().is_some_and(|d| d.parent() == Some(Path::new("/Volumes"))) {
+        return Some("Voix Fluide tourne depuis l'image disque. Glissez Voix Fluide.app dans Applications, ouvrez-la depuis là, puis mettez à jour.".into());
+    }
+    None
+}
+
+/// A path removed (file or folder) when dropped.
+struct Cleanup(PathBuf);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0).or_else(|_| std::fs::remove_file(&self.0));
+    }
+}
+
+/// Run a tool; on failure, `what` and its error output.
+fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
+    let out = cmd.stdin(std::process::Stdio::null()).output().map_err(|e| format!("{what} : {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!("{what} : {}", String::from_utf8_lossy(&out.stderr).trim()))
+    }
+}
+
+/// Mount `dmg` read-only on `mount`, copy its `Voix Fluide.app` to `to` and always unmount.
+fn copy_from_dmg(dmg: &Path, mount: &Path, to: &Path) -> Result<(), String> {
+    use std::process::Command;
+    std::fs::create_dir_all(mount).map_err(|e| e.to_string())?;
+    run(
+        Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint"]).arg(mount).arg(dmg),
+        "Ouverture de l'image disque impossible",
+    )?;
+    let app = mount.join("Voix Fluide.app");
+    let copied = if app.is_dir() {
+        run(Command::new("/usr/bin/ditto").arg(&app).arg(to), "Copie de la nouvelle app impossible")
+    } else {
+        Err("L'image disque ne contient pas Voix Fluide.app.".into())
+    };
+    if run(Command::new("/usr/bin/hdiutil").arg("detach").arg(mount), "hdiutil detach").is_err() {
+        let _ = run(Command::new("/usr/bin/hdiutil").args(["detach", "-force"]).arg(mount), "hdiutil detach");
+    }
+    copied
+}
+
+/// Replace the app at `bundle` with the one of the Release's `.dmg`. On any failure
+/// the installed app is left as it was (or put back) and the downloaded files removed.
+pub fn install_dmg(release: &Release, bundle: &Path) -> Result<(), String> {
+    let Some(want) = &release.dmg_sha256 else {
+        return Err("Cette Release n'a pas de .dmg vérifiable : téléchargez-la depuis GitHub.".into());
+    };
+    if let Some(why) = bundle_place_refused(bundle) {
+        return Err(why);
+    }
+    let dir = bundle.parent().ok_or("L'app n'a pas de dossier.")?;
+    let name = bundle.file_name().ok_or("L'app n'a pas de nom.")?.to_string_lossy().into_owned();
+    let pid = std::process::id();
+    // Hidden names next to the app, on its volume, so the swap is two renames.
+    let staged = dir.join(format!(".{name}.update-{pid}"));
+    let backup = dir.join(format!(".{name}.old-{pid}"));
+    let _ = std::fs::remove_dir_all(&staged);
+    let _ = std::fs::remove_dir_all(&backup);
+    if let Err(e) = std::fs::create_dir(&staged).and_then(|_| std::fs::remove_dir(&staged)) {
+        return Err(format!("Voix Fluide ne peut pas écrire dans {} ({e}). Téléchargez la nouvelle version depuis GitHub et glissez-la dans Applications.", dir.display()));
+    }
+
+    let tmp = std::env::temp_dir().join(format!("voix-fluide-update-{pid}"));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    let _tmp = Cleanup(tmp.clone());
+    let dmg = tmp.join("Voix-Fluide.dmg");
+    download(LATEST_DMG, &dmg)?;
+    if !sha256_matches(&dmg, want)? {
+        return Err("Le fichier téléchargé ne correspond pas à la Release (SHA-256).".into());
+    }
+    replace_app(&dmg, &tmp.join("mount"), bundle, &staged, &backup)
+}
+
+/// Copy the app of `dmg` to `staged`, check it, and swap it with `bundle` by two renames.
+fn replace_app(dmg: &Path, mount: &Path, bundle: &Path, staged: &Path, backup: &Path) -> Result<(), String> {
+    use std::process::Command;
+    let staged_guard = Cleanup(staged.to_path_buf());
+    copy_from_dmg(dmg, mount, staged)?;
+    if !staged.join("Contents/MacOS/voix-fluide").is_file() {
+        return Err("La nouvelle app est incomplète.".into());
+    }
+    run(Command::new("/usr/bin/codesign").args(["--verify", "--deep", "--strict"]).arg(staged), "La signature de la nouvelle app n'est pas valide")?;
+
+    std::fs::rename(bundle, backup).map_err(|e| format!("Impossible de mettre l'app actuelle de côté : {e}"))?;
+    if let Err(e) = std::fs::rename(staged, bundle) {
+        return Err(match std::fs::rename(backup, bundle) {
+            Ok(()) => format!("Impossible de mettre la nouvelle app en place : {e}"),
+            Err(r) => format!("Impossible de mettre la nouvelle app en place ({e}) ni de remettre l'ancienne ({r}) : elle est dans {}", backup.display()),
+        });
+    }
+    drop(staged_guard);
+    let _ = std::fs::remove_dir_all(backup);
+    Ok(())
+}
+
+/// Open `bundle` again once the launcher has quit, from a detached shell, then quit.
+/// The launcher (our parent when we are the copy in `programme/`) leaves after us.
+pub fn relaunch_app(bundle: &Path) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    const SCRIPT: &str = r#"i=0; while kill -0 "$1" 2>/dev/null && [ "$i" -lt 100 ]; do sleep 0.2; i=$((i+1)); done; exec /usr/bin/open -n "$2""#;
+    let wait_for = if std::env::var_os(crate::mac::CHILD_ENV).is_some() { unsafe { libc::getppid() } } else { std::process::id() as libc::pid_t };
+    let mut cmd = std::process::Command::new("/bin/sh");
+    cmd.args(["-c", SCRIPT, "sh"])
+        .arg(wait_for.to_string())
+        .arg(bundle)
+        .env_remove(crate::mac::CHILD_ENV)
+        .env_remove(crate::mac::LAUNCHER_ENV)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // Its own session: it must outlive us and the launcher.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    cmd.spawn().map_err(|e| format!("Relance impossible : {e}"))?;
+    std::process::exit(0);
+}
+
 /// Start the installed program as a fresh launcher (without the copy's marker, so it
 /// goes through `run_with_own_permissions` and re-signs), detached, then quit.
 pub fn relaunch(path: &Path) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
     let mut cmd = std::process::Command::new(path);
     cmd.env_remove(crate::mac::CHILD_ENV)
+        .env_remove(crate::mac::LAUNCHER_ENV)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -225,9 +397,7 @@ pub fn spawn_check(state: UpdateRef, ctx: egui::Context) {
     *state.lock().unwrap() = UpdateState::Checking;
     std::thread::spawn(move || {
         let next = match check() {
-            Ok(r) if update_available(env!("VF_COMMIT"), &r.commit) => {
-                UpdateState::Available { version: r.version, commit: r.commit, sha256: r.sha256 }
-            }
+            Ok(r) if update_available(env!("VF_COMMIT"), &r.commit) => UpdateState::Available(r),
             Ok(_) => UpdateState::UpToDate,
             Err(e) => UpdateState::Failed(e),
         };
@@ -236,13 +406,23 @@ pub fn spawn_check(state: UpdateRef, ctx: egui::Context) {
     });
 }
 
-/// Download and install in a thread, then relaunch once no dictation or
-/// mini-session is running (one may have started during the download).
+/// What to relaunch once installed.
+enum Installed {
+    App(PathBuf),
+    Binary(PathBuf),
+}
+
+/// Download and install in a thread (the .dmg from an app, the binary otherwise), then
+/// relaunch once no dictation or mini-session is running (one may have started meanwhile).
 pub fn spawn_install(state: UpdateRef, release: Release, shared: SharedRef, ctx: egui::Context) {
     *state.lock().unwrap() = UpdateState::Downloading;
     std::thread::spawn(move || {
-        let path = match install(&release) {
-            Ok(p) => p,
+        let installed = match running_bundle() {
+            Some(bundle) => install_dmg(&release, &bundle).map(|()| Installed::App(bundle)),
+            None => install(&release).map(Installed::Binary),
+        };
+        let installed = match installed {
+            Ok(i) => i,
             Err(e) => {
                 *state.lock().unwrap() = UpdateState::Failed(e);
                 ctx.request_repaint();
@@ -259,7 +439,11 @@ pub fn spawn_install(state: UpdateRef, release: Release, shared: SharedRef, ctx:
             }
             std::thread::sleep(Duration::from_millis(200));
         }
-        if let Err(e) = relaunch(&path) {
+        let relaunched = match &installed {
+            Installed::App(bundle) => relaunch_app(bundle),
+            Installed::Binary(path) => relaunch(path),
+        };
+        if let Err(e) = relaunched {
             *state.lock().unwrap() = UpdateState::Failed(e);
             ctx.request_repaint();
         }
@@ -273,7 +457,35 @@ mod tests {
     #[test]
     fn parses_latest_json() {
         let r = parse_release(r#"{"version":"0.3.0","commit":"F0A67A9","sha256":"ab12"}"#).unwrap();
-        assert_eq!(r, Release { version: "0.3.0".into(), commit: "F0A67A9".into(), sha256: "ab12".into() });
+        assert_eq!(r, Release { version: "0.3.0".into(), commit: "F0A67A9".into(), sha256: "ab12".into(), dmg_sha256: None });
+    }
+
+    #[test]
+    fn parses_latest_json_with_dmg() {
+        let r = parse_release(r#"{"version":"0.4.0","commit":"c0ffee","sha256":"ab12","dmg_sha256":"cd34"}"#).unwrap();
+        assert_eq!(r.sha256, "ab12");
+        assert_eq!(r.dmg_sha256.as_deref(), Some("cd34"));
+        let empty = parse_release(r#"{"version":"0.4.0","commit":"c0ffee","sha256":"ab12","dmg_sha256":""}"#).unwrap();
+        assert_eq!(empty.dmg_sha256, None);
+    }
+
+    #[test]
+    fn bundle_from_exe_path() {
+        let exe = Path::new("/Applications/Voix Fluide.app/Contents/MacOS/voix-fluide");
+        assert_eq!(bundle_of(exe), Some(PathBuf::from("/Applications/Voix Fluide.app")));
+        let support = Path::new("/Users/a/Library/Application Support/VoixFluide/programme/voix-fluide");
+        assert_eq!(bundle_of(support), None);
+        assert_eq!(bundle_of(Path::new("/Users/a/dev/voix-fluide/target/debug/voix-fluide")), None);
+        assert_eq!(bundle_of(Path::new("/tmp/Voix Fluide/Contents/MacOS/voix-fluide")), None);
+    }
+
+    #[test]
+    fn refuses_translocated_or_mounted_app() {
+        let moved = Path::new("/private/var/folders/xy/T/AppTranslocation/1234-ABCD/d/Voix Fluide.app");
+        assert!(bundle_place_refused(moved).unwrap().contains("copie temporaire"));
+        assert!(bundle_place_refused(Path::new("/Volumes/Voix Fluide/Voix Fluide.app")).unwrap().contains("image disque"));
+        assert_eq!(bundle_place_refused(Path::new("/Applications/Voix Fluide.app")), None);
+        assert_eq!(bundle_place_refused(Path::new("/Volumes/Data/Apps/Voix Fluide.app")), None);
     }
 
     #[test]
