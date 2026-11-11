@@ -1,0 +1,184 @@
+spec_version: "0.1"
+
+service:
+  name: Voix Fluide
+  repo: C2-POLY/voix-fluide
+  description: A dictation app for macOS. The person holds or taps a key, speaks, and the text is transcribed on the Mac and pasted into the active app. A second key sends a spoken question to Claude Code, read-only, in one of the person's repositories. The repo also holds the app's presentation site.
+  controller: user-of-the-app # declared: question 1, developer and product owner
+  components:
+    - {id: app, kind: macos-app}
+    - {id: site, kind: website}
+  source: {kind: declared, ref: "CLAUDE.md, Cargo.toml; controller answered by the developer and product owner during compliance-init"}
+
+personal_data:
+  - id: voice-recording
+    component: app
+    subjects: [users of the app, persons the user speaks about]
+    fields:
+      - {name: microphone recording of a dictation (audio), category: unknown}
+    purpose: transcribe the dictation on the Mac; the last recording is kept so the person can play it back to check the microphone
+    # legal_basis: not known yet (question 3)
+    source: {kind: code, ref: "src/engine.rs"}
+
+  - id: dictated-text
+    component: app
+    subjects: [users of the app, persons the user speaks about]
+    fields:
+      - {name: text transcribed from the dictation (free text), category: unknown}
+      - {name: time and length of the dictation, category: usage}
+    purpose: paste the dictated text into the active app and show the recent dictations in the window
+    # legal_basis: not known yet (question 3)
+    source: {kind: code, ref: "src/engine.rs"}
+
+  - id: claude-questions
+    component: app
+    subjects: [users of the app, persons the user speaks about]
+    fields:
+      - {name: spoken question to Claude Code (free text), category: unknown}
+      - {name: repository folder path (holds the macOS account name), category: identity}
+      - {name: Claude Code answer and session id, category: usage}
+    purpose: answer a spoken question about one of the person's repositories with Claude Code, read-only
+    # legal_basis: not known yet (question 3)
+    source: {kind: code, ref: "src/claude.rs, src/engine.rs"}
+    linked_files: ["src/claude.rs"]
+
+  - id: signing-certificate
+    component: app
+    subjects: [users of the app]
+    fields:
+      - {name: Apple code-signing certificate of the user (names its holder), category: identity}
+      - {name: hash of the signing identity used, category: identity}
+    purpose: sign a stable copy of the app so macOS keeps its microphone and accessibility permissions, and skip a revoked certificate
+    # legal_basis: not known yet (question 3)
+    source: {kind: code, ref: "src/mac.rs"}
+
+storage:
+  - id: last-recording
+    component: app
+    kind: file
+    location: ~/Library/Application Support/VoixFluide/derniere-dictee.wav on the user's Mac
+    data: [voice-recording]
+    retention: {duration: none, trigger: replaced by the next recording; otherwise kept until the person deletes it}
+    source: {kind: code, ref: "src/engine.rs"}
+
+  - id: in-app-memory
+    component: app
+    kind: memory
+    location: memory of the app on the user's Mac (history of the last 50 dictations, mini-sessions)
+    data: [dictated-text, claude-questions]
+    retention: {duration: session, trigger: the app quits}
+    source: {kind: code, ref: "src/engine.rs"}
+
+  - id: clipboard
+    component: app
+    kind: other
+    location: the macOS clipboard of the user's Mac, used for the paste
+    data: [dictated-text]
+    retention: {duration: none, trigger: "the previous clipboard text is put back after the paste, unless 'keep the clipboard' is on; then until something else is copied"}
+    source: {kind: code, ref: "src/mac.rs"}
+
+  - id: settings-file
+    component: app
+    kind: file
+    location: ~/Library/Application Support/VoixFluide/settings.json on the user's Mac
+    data: [claude-questions]
+    retention: {duration: none, trigger: until the person deletes it}
+    source: {kind: code, ref: "src/engine.rs"}
+
+  - id: session-scripts
+    component: app
+    kind: file
+    location: ~/Library/Application Support/VoixFluide/sessions/, one script per mini-session continued in Terminal, on the user's Mac
+    data: [claude-questions]
+    retention: {duration: none, trigger: until the person deletes it}
+    source: {kind: code, ref: "src/claude.rs"}
+
+  - id: signing-identity
+    component: app
+    kind: file
+    location: ~/Library/Application Support/VoixFluide/programme/identity.txt on the user's Mac (cert.pem only while a certificate is checked, then deleted)
+    data: [signing-certificate]
+    retention: {duration: none, trigger: until the person deletes it}
+    source: {kind: code, ref: "src/mac.rs"}
+
+processors:
+  - id: github-pages
+    component: site
+    name: GitHub
+    service: hosting of the presentation site (GitHub Pages); sees each visitor's IP address and technical headers
+    country: US # declared: question 4, developer and product owner (looked up in GitHub's privacy statement)
+    dpa: "no" # declared: question 5, developer and product owner ("nothing signed yet")
+    transfer_outside_eu: true # follows from the country declared in question 4
+    safeguard: EU-U.S. Data Privacy Framework (GitHub self-certified) and standard contractual clauses, per GitHub's privacy statement # declared: question 4
+    data: []
+    source: {kind: code, ref: "site/vite.config.ts"}
+
+outbound_flows:
+  - id: ask-claude-code
+    component: app
+    to: {name: Anthropic (through the user's Claude Code), country: US} # declared: question 4; EEA users contract with Anthropic Ireland, Limited, data processed in the US under standard contractual clauses (Anthropic privacy policy)
+    data: [claude-questions]
+    purpose: send the spoken question, and the repository files Claude Code reads, to Claude to get an answer
+    account: user # confirmed: question 5, developer and product owner
+    source: {kind: code, ref: "src/claude.rs"}
+
+  - id: update-check
+    component: app
+    to: {name: GitHub (Releases of C2-POLY/voix-fluide), country: US} # declared: question 4
+    data: []
+    purpose: update check and download of the new version; sends only the IP address and the technical headers
+    account: none
+    source: {kind: code, ref: "src/update.rs"}
+
+  - id: model-download
+    component: app
+    to: {name: Hugging Face, country: US} # declared: question 4; Hugging Face's privacy policy names no transfer mechanism
+    data: []
+    purpose: download of the speech-to-text model files; sends only the IP address and the technical headers
+    account: none
+    source: {kind: code, ref: "src/whisper.rs"}
+
+  - id: certificate-check
+    component: app
+    to: {name: Apple (OCSP certificate status service), country: US} # declared: question 4; EEA users' data is controlled by Apple Distribution International (IE), transfers under standard contractual clauses (Apple privacy policy)
+    data: [signing-certificate]
+    purpose: ask Apple whether the user's signing certificate was revoked; the request names the certificate
+    account: none
+    source: {kind: code, ref: "src/mac.rs"}
+
+  - id: site-hosting
+    component: site
+    to: {name: GitHub (GitHub Pages), country: US} # declared: question 4
+    data: []
+    purpose: serve the presentation site; the host sees only the visitor's IP address and the technical headers (no tracker, no external font)
+    account: organisation # confirmed: question 5, developer and product owner
+    source: {kind: code, ref: "site/vite.config.ts, site/index.html"}
+
+automated_decisions: []
+
+ai_features:
+  - id: dictation-transcription
+    component: app
+    description: A speech-to-text model (Whisper on candle, or Parakeet on ONNX Runtime) runs on the Mac and turns the person's voice into text, which is pasted into the active app.
+    generates_content: true
+    interacts_with_persons: false
+    human_review: false # found: the text is pasted with no step in between
+    marking: the window and the floating pill show "Transcription…" and the model in use (page "Modèle et langue") # declared: question 6, developer and product owner
+    data: [voice-recording, dictated-text]
+    source: {kind: code, ref: "src/whisper.rs, src/engine.rs"}
+
+  - id: claude-mini-sessions
+    component: app
+    description: Claude Code answers a spoken question about one of the person's repositories with read-only tools. The answer is shown in the window and its one-sentence summary is read aloud.
+    generates_content: true
+    interacts_with_persons: true
+    human_review: true # inferred: nothing is applied, Claude Code only reads files and the person reads the answer; to confirm
+    marking: the page and the shortcut are labelled "Claude Code" # found in src/main.rs
+    data: [claude-questions]
+    source: {kind: code, ref: "src/claude.rs, src/main.rs"}
+
+linked_files:
+  - "src/**"
+  - "site/vite.config.ts"
+  - "site/index.html"
+  - "site/src/index.css"
