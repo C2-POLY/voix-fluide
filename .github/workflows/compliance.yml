@@ -1,0 +1,49 @@
+# .github/workflows/compliance.yml
+# Check the manifest on pull requests (no secret), send it to the compliance repo on pushes to the default branch.
+# Resolve each SHA with: gh api repos/<owner>/<repo>/commits/<tag> --jq .sha (the commit SHA, also for annotated tags).
+name: Compliance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: C2-POLY/compliance-action@bc21ace2874546fccd7949c1ab8a440ff89d1b23 # v1
+        with:
+          mode: check
+
+  send:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: compliance # restricted to the default branch (Settings > Environments)
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0 # the lag needs the full history
+          persist-credentials: false
+
+      - id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.COMPLIANCE_APP_ID }}
+          private-key: ${{ secrets.COMPLIANCE_APP_PRIVATE_KEY }}
+          owner: C2-POLY
+          repositories: compliance-records
+          permission-contents: write
+
+      - uses: C2-POLY/compliance-action@bc21ace2874546fccd7949c1ab8a440ff89d1b23 # v1
+        with:
+          mode: send
+          compliance-repo: C2-POLY/compliance-records
+          token: ${{ steps.token.outputs.token }}
