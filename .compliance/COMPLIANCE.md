@@ -28,5 +28,4 @@ Processing drafts below cover only what the organisation itself controls: none a
 ## 4. To complete in the compliance repo
 
 - Controller contact, data protection officer, security measures of each processing (nothing in the code states them).
-- The legal basis of the four `personal_data` entries, if the organisation wants to record one for local processing (question left open during compliance-init).
-- The receiving side: the `receive` workflow and the App that reads this repo (see the compliance-action README), and CODEOWNERS for `services/**`. `C2-POLY/compliance-records` does not exist yet.
+- The receiving side is set up in `C2-POLY/compliance-records` (`receive` and `register` workflows, CODEOWNERS).
