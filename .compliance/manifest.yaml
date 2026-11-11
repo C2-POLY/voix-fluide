@@ -17,7 +17,7 @@ personal_data:
     fields:
       - {name: microphone recording of a dictation (audio), category: unknown}
     purpose: transcribe the dictation on the Mac; the last recording is kept so the person can play it back to check the microphone
-    # legal_basis: not known yet (question 3)
+    legal_basis: not-applicable # follows from question 1: the user of the app is the controller
     source: {kind: code, ref: "src/engine.rs"}
 
   - id: dictated-text
@@ -27,7 +27,7 @@ personal_data:
       - {name: text transcribed from the dictation (free text), category: unknown}
       - {name: time and length of the dictation, category: usage}
     purpose: paste the dictated text into the active app and show the recent dictations in the window
-    # legal_basis: not known yet (question 3)
+    legal_basis: not-applicable # follows from question 1: the user of the app is the controller
     source: {kind: code, ref: "src/engine.rs"}
 
   - id: claude-questions
@@ -38,7 +38,7 @@ personal_data:
       - {name: repository folder path (holds the macOS account name), category: identity}
       - {name: Claude Code answer and session id, category: usage}
     purpose: answer a spoken question about one of the person's repositories with Claude Code, read-only
-    # legal_basis: not known yet (question 3)
+    legal_basis: not-applicable # follows from question 1: the user of the app is the controller
     source: {kind: code, ref: "src/claude.rs, src/engine.rs"}
     linked_files: ["src/claude.rs"]
 
@@ -49,7 +49,7 @@ personal_data:
       - {name: Apple code-signing certificate of the user (names its holder), category: identity}
       - {name: hash of the signing identity used, category: identity}
     purpose: sign a stable copy of the app so macOS keeps its microphone and accessibility permissions, and skip a revoked certificate
-    # legal_basis: not known yet (question 3)
+    legal_basis: not-applicable # follows from question 1: the user of the app is the controller
     source: {kind: code, ref: "src/mac.rs"}
 
 storage:
