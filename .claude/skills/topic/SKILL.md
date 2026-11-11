@@ -107,6 +107,16 @@ gh project item-edit --project-id PVT_kwDODd-WqM4Bq3jr --id "$item" --field-id P
 
 **Tenir le design juste** : si le développement s'en écarte (une autre approche, un message de plus, un fichier imprévu), mets la section à jour dans l'issue et dis au dev en une ligne ce qui a changé. Un design faux est pire que pas de design.
 
+### Conformité, une fois l'issue validée
+
+Le dépôt a un manifest de conformité, `.compliance/manifest.yaml` : ce que l'app fait des données personnelles (voix, texte dicté, questions à Claude Code…), où elles sont gardées, à qui elles partent, ses fonctions d'IA. Une fois l'issue créée ou relue (et son design validé, s'il y en a un), lance le skill `compliance-step` sur elle. Il lit l'issue et le manifest, regarde quatre déclencheurs (une donnée personnelle nouvelle, un service ou destinataire externe, un stockage ou une durée de conservation, une décision automatisée ou une fonction d'IA), et ne pose que les questions de ceux qui se déclenchent, en un seul message numéroté.
+
+- **Sa section va à la fin du corps de l'issue** (`gh issue edit <n> --repo C2-POLY/voix-fluide --body-file <fichier>`), en français : `**Conformité**` avec une ligne par déclencheur, ou les deux lignes `Impact RGPD : aucun` et la raison. Le manifest, lui, reste en anglais.
+- **Pas de worktree tant que ses questions n'ont pas de réponse.** Une question sans réponse reste une ligne `TODO:` dans la section, jamais une valeur devinée.
+- **Le manifest se change dans le worktree, à l'étape 4**, pas maintenant : garde les réponses jusque-là.
+
+Ce travail prépare la documentation, il ne certifie rien. Après le merge, le workflow `compliance.yml` envoie le manifest à `C2-POLY/compliance-records`, où une PR attend sa relecture.
+
 ## 3. Worktree
 
 Toujours un worktree, et tu ne demandes rien au dev, ni le choix ni le nom : plusieurs sessions Claude peuvent partager le dossier principal et changer la branche sous tes pieds. Choisis le nom toi-même, `feat/<n>-…` pour une Feature, `fix/<n>-…` pour un Bug, `chore/<n>-…` pour l'outillage et la doc (`<n>` le numéro de l'issue), et crée-le à côté de l'espace de travail, depuis `origin/main` et sans qu'il suive `main`, pour qu'un `git push` nu ne parte jamais vers `main`. Depuis le dossier principal (`…/voix-fluide/app`) :
@@ -119,7 +129,7 @@ Un worktree neuf n'a pas de `target/` : copie celui du dossier principal pour é
 
 ## 4. Travailler
 
-Respecte `CLAUDE.md` (architecture, fils et canaux, version) et, s'il y en a un, le design validé de l'issue : le brief d'une session à part le cite en entier, schéma compris. La fenêtre ne bloque jamais sur le micro ou le modèle : ce travail passe par `Cmd` et `Job`, et le verrou de `Shared` se tient le moins longtemps possible. Ne touche pas au presse-papiers du dev sans le remettre quand le réglage le demande. Ajoute ou mets à jour les tests unitaires (`#[cfg(test)]` dans le fichier touché, pour la logique pure : `resample`, `loudness`, `clean`, `pill_layout`, les réglages ; un test qui télécharge un modèle ou transcrit pour de vrai est `#[ignore]`). Quand le sujet change quelque chose de visible dans l'app, applique la règle de version du jour (« Versioning »). Si une valeur de `mechanics.json` change, mets `MECHANICS.md` à jour. Le développement se délègue au modèle et à l'effort du tableau de « Niveau du sujet ».
+Respecte `CLAUDE.md` (architecture, fils et canaux, version) et, s'il y en a un, le design validé de l'issue : le brief d'une session à part le cite en entier, schéma compris. La fenêtre ne bloque jamais sur le micro ou le modèle : ce travail passe par `Cmd` et `Job`, et le verrou de `Shared` se tient le moins longtemps possible. Ne touche pas au presse-papiers du dev sans le remettre quand le réglage le demande. Ajoute ou mets à jour les tests unitaires (`#[cfg(test)]` dans le fichier touché, pour la logique pure : `resample`, `loudness`, `clean`, `pill_layout`, les réglages ; un test qui télécharge un modèle ou transcrit pour de vrai est `#[ignore]`). Quand le sujet change quelque chose de visible dans l'app, applique la règle de version du jour (« Versioning »). Si une valeur de `mechanics.json` change, mets `MECHANICS.md` à jour. Si la conformité de l'étape 2 a déclenché quelque chose, mets `.compliance/manifest.yaml` à jour avec les réponses, comme le dit `compliance-step` : chaque élément ajouté ou changé prend `source: {kind: spec, ref: <url de l'issue>}`, et les fichiers touchés vont dans `linked_files`. Le développement se délègue au modèle et à l'effort du tableau de « Niveau du sujet ».
 
 ## 5. Tester
 
@@ -140,6 +150,11 @@ cargo test -- --ignored --nocapture
 
 # Et une transcription de bout en bout sur un WAV 16 bits (le texte attendu doit sortir)
 cargo run -- --transcribe <fichier.wav> fr
+
+# Seulement si le manifest a changé : il doit passer le validateur de compliance-spec
+spec="${COMPLIANCE_SPEC:-$HOME/Documents/c2-poly/repo/compliance/compliance-spec}"
+[ -d "$spec/node_modules" ] || { spec="${TMPDIR:-/tmp}/compliance-spec"; [ -d "$spec" ] || git clone -q --depth 1 https://github.com/C2-POLY/compliance-spec "$spec"; (cd "$spec" && npm ci --silent); }
+node "$spec/scripts/validate.mjs" .compliance/manifest.yaml
 ```
 
 Un test qui échoue s'explique par le sujet ou se corrige ; ne le désactive pas. Un warning nouveau se corrige. En cas de doute, lance la même commande dans le dossier principal, sur `main`, pour comparer.
@@ -170,7 +185,8 @@ Quand il a essayé et fermé l'app, lis son terminal (outil `read_terminal`, ong
 
 ## 8. Clôturer, seulement si aucune erreur
 
-1. Commit sur la branche du sujet (message en anglais, Conventional Commits : `feat(pill): …`, sans numéro de version). Jamais de relecture du diff par un agent avant le commit : ses tests et l'essai du dev sont le filet.
+1. Avant le commit, relance `compliance-step` sur le diff (`git diff origin/main...HEAD`) : le code peut faire plus que ce que disait l'issue (un champ gardé, un appel réseau nouveau). Si un déclencheur part que l'étape 2 n'avait pas vu, pose ses questions, mets le manifest à jour, revalide-le (étape 5) et remplace la section Conformité de l'issue. `.compliance/manifest.yaml` fait alors partie du commit.
+   Commit sur la branche du sujet (message en anglais, Conventional Commits : `feat(pill): …`, sans numéro de version). Jamais de relecture du diff par un agent avant le commit : ses tests et l'essai du dev sont le filet.
 2. Push de la branche, puis PR vers `main` (titre en anglais, Conventional Commits ; corps avec `Closes #<n>`). L'issue passe à **In review**.
 3. Issue : vérifie que la section Design, s'il y en a une, décrit bien le code livré (sinon mets-la à jour), coche les critères que le dev a vérifiés à l'étape 7, ajoute la ligne `**Livré** : \`vX.Y.Z\`` et le label de version. Une fois la PR mergée, passe l'issue à **Done**. Si un critère n'a pas pu être testé, l'issue va à **To test** avec sa case décochée, et tu dis lequel.
 4. Une fois la PR mergée dans `main`, déplace le tag de version (voir « Versioning » de `CLAUDE.md`).
