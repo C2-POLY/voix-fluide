@@ -109,9 +109,9 @@ gh project item-edit --project-id PVT_kwDODd-WqM4Bq3jr --id "$item" --field-id P
 
 ### Conformité, une fois l'issue validée
 
-Le dépôt a un manifest de conformité, `.compliance/manifest.yaml` : ce que l'app fait des données personnelles (voix, texte dicté, questions à Claude Code…), où elles sont gardées, à qui elles partent, ses fonctions d'IA. Une fois l'issue créée ou relue (et son design validé, s'il y en a un), lance le skill `compliance-step` sur elle. Il lit l'issue et le manifest, regarde quatre déclencheurs (une donnée personnelle nouvelle, un service ou destinataire externe, un stockage ou une durée de conservation, une décision automatisée ou une fonction d'IA), et ne pose que les questions de ceux qui se déclenchent, en un seul message numéroté.
+Le dépôt a un manifest de conformité, `.compliance/manifest.yaml` : ce que l'app fait des données personnelles (voix, texte dicté, questions à Claude Code…), où elles sont gardées, à qui elles partent, ses fonctions d'IA. Une fois l'issue créée ou relue (et son design validé, s'il y en a un), lance le skill `compliance-step` sur elle. Il lit l'issue et le manifest, regarde six déclencheurs (une donnée personnelle nouvelle, un service ou destinataire externe, un stockage ou une durée de conservation, une décision automatisée ou une fonction d'IA, ce qu'on dit aux personnes — page de confidentialité, écran, message —, le rôle ou le niveau de risque AI Act d'une fonction), et ne pose que les questions de ceux qui se déclenchent, en un seul message numéroté.
 
-- **Sa section va à la fin du corps de l'issue** (`gh issue edit <n> --repo C2-POLY/voix-fluide --body-file <fichier>`), en français : `**Conformité**` avec une ligne par déclencheur, ou les deux lignes `Impact RGPD : aucun` et la raison. Le manifest, lui, reste en anglais.
+- **Sa section va à la fin du corps de l'issue** (`gh issue edit <n> --repo C2-POLY/voix-fluide --body-file <fichier>`), en français : `**Conformité**` avec une ligne par déclencheur, ou les deux lignes `Impact RGPD : aucun` et la raison. Le manifest est au format v0.2 et ses textes libres (descriptions, finalités, champs, durées) s'écrivent en français, la langue du dossier (`organisation.language: fr` dans `C2-POLY/compliance-records`) ; les ids et les valeurs d'énumération restent en anglais. Le responsable de traitement dépend du composant (`service.components`) : pour une donnée nouvelle de `app`, c'est l'utilisateur, et `compliance-step` ne demande pas de base légale (`legal_basis: not-applicable`) ; pour `updates` et `site`, c'est C2-POLY, et il la demande avec son détail, qui va dans la section Conformité pour la fiche de traitement.
 - **Pas de worktree tant que ses questions n'ont pas de réponse.** Une question sans réponse reste une ligne `TODO:` dans la section, jamais une valeur devinée.
 - **Le manifest se change dans le worktree, à l'étape 4**, pas maintenant : garde les réponses jusque-là.
 
@@ -151,9 +151,12 @@ cargo test -- --ignored --nocapture
 # Et une transcription de bout en bout sur un WAV 16 bits (le texte attendu doit sortir)
 cargo run -- --transcribe <fichier.wav> fr
 
-# Seulement si le manifest a changé : il doit passer le validateur de compliance-spec
+# Seulement si le manifest a changé : il doit passer le validateur de compliance-spec, à jour
+# (un schéma plus ancien que le manifest refuse ses champs v0.2 récents ; le script choisit le schéma selon spec_version)
 spec="${COMPLIANCE_SPEC:-$HOME/Documents/c2-poly/repo/compliance/compliance-spec}"
-[ -d "$spec/node_modules" ] || { spec="${TMPDIR:-/tmp}/compliance-spec"; [ -d "$spec" ] || git clone -q --depth 1 https://github.com/C2-POLY/compliance-spec "$spec"; (cd "$spec" && npm ci --silent); }
+[ -d "$spec/.git" ] || spec="${TMPDIR:-/tmp}/compliance-spec"
+if [ -d "$spec/.git" ]; then git -C "$spec" pull -q --ff-only; else git clone -q --depth 1 https://github.com/C2-POLY/compliance-spec "$spec"; fi
+(cd "$spec" && npm ci --silent)
 node "$spec/scripts/validate.mjs" .compliance/manifest.yaml
 ```
 
