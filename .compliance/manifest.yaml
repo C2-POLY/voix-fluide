@@ -1,13 +1,21 @@
-spec_version: "0.1"
+spec_version: "0.2"
 
 service:
   name: Voix Fluide
   repo: C2-POLY/voix-fluide
   description: A dictation app for macOS. The person holds or taps a key, speaks, and the text is transcribed on the Mac and pasted into the active app. A second key sends a spoken question to Claude Code, read-only, in one of the person's repositories. The repo also holds the app's presentation site.
   controller: user-of-the-app # declared: question 1, developer and product owner
+  controller_rationale: "Voix Fluide runs on the person's Mac: the voice, the dictated text and the questions to Claude Code stay on the Mac or go out with the person's own Claude Code account, and C2-POLY receives none of them. C2-POLY controls only its presentation site and the distribution of updates." # to confirm by the DPO
+  privacy_by_design: # found in code, to confirm
+    - Speech is transcribed on the Mac, with no server of C2-POLY
+    - Only the last recording is kept, and it is replaced by the next one
+    - The previous clipboard text is put back after the paste
+    - Claude Code runs with read-only tools
+    - The update check sends no identifier
   components:
-    - {id: app, kind: macos-app}
-    - {id: site, kind: website}
+    - {id: app, kind: macos-app, controller: user-of-the-app}
+    - {id: updates, kind: release-channel, controller: organisation} # the GitHub Releases the app checks and downloads from
+    - {id: site, kind: website, controller: organisation}
   source: {kind: declared, ref: "CLAUDE.md, Cargo.toml; controller answered by the developer and product owner during compliance-init"}
 
 personal_data:
@@ -41,6 +49,25 @@ personal_data:
     legal_basis: not-applicable # follows from question 1: the user of the app is the controller
     source: {kind: code, ref: "src/claude.rs, src/engine.rs"}
     linked_files: ["src/claude.rs"]
+
+  - id: site-connection
+    component: site
+    subjects: [visitors of the presentation site]
+    fields:
+      - {name: IP address and technical headers received by the host, category: connection}
+    purpose: serve the presentation site
+    legal_basis: legitimate-interests # declared: processing site-visits, compliance-records PR #9
+    source: {kind: code, ref: "site/vite.config.ts"}
+
+  - id: update-connection
+    component: updates
+    subjects: [users of the app]
+    fields:
+      - {name: IP address and technical headers of the Mac received by GitHub, category: connection}
+    purpose: check for a new version and download it
+    legal_basis: legitimate-interests # declared: processing app-updates, compliance-records PR #9
+    source: {kind: code, ref: "src/update.rs"}
+    linked_files: ["src/update.rs"]
 
   - id: signing-certificate
     component: app
@@ -110,8 +137,19 @@ processors:
     dpa: "no" # declared: question 5, developer and product owner ("nothing signed yet")
     transfer_outside_eu: true # follows from the country declared in question 4
     safeguard: EU-U.S. Data Privacy Framework (GitHub self-certified) and standard contractual clauses, per GitHub's privacy statement # declared: question 4
-    data: []
+    data: [site-connection]
     source: {kind: code, ref: "site/vite.config.ts"}
+
+  - id: github-releases
+    component: updates
+    name: GitHub
+    service: hosting of the Releases the app checks and downloads (GitHub Releases); sees the IP address of each Mac that checks
+    country: US # declared: question 4
+    dpa: "no" # declared: question 5 ("nothing signed yet")
+    transfer_outside_eu: true
+    safeguard: EU-U.S. Data Privacy Framework (GitHub self-certified) and standard contractual clauses, per GitHub's privacy statement # declared: question 4
+    data: [update-connection]
+    source: {kind: code, ref: "src/update.rs"}
 
 outbound_flows:
   - id: ask-claude-code
@@ -123,9 +161,10 @@ outbound_flows:
     source: {kind: code, ref: "src/claude.rs"}
 
   - id: update-check
-    component: app
-    to: {name: GitHub (Releases of C2-POLY/voix-fluide), country: US} # declared: question 4
-    data: []
+    component: updates
+    to: {name: GitHub, country: US} # declared: question 4
+    processor: github-releases
+    data: [update-connection]
     purpose: update check and download of the new version; sends only the IP address and the technical headers
     account: none
     source: {kind: code, ref: "src/update.rs"}
@@ -148,11 +187,24 @@ outbound_flows:
 
   - id: site-hosting
     component: site
-    to: {name: GitHub (GitHub Pages), country: US} # declared: question 4
-    data: []
+    to: {name: GitHub, country: US} # declared: question 4
+    processor: github-pages
+    data: [site-connection]
     purpose: serve the presentation site; the host sees only the visitor's IP address and the technical headers (no tracker, no external font)
     account: organisation # confirmed: question 5, developer and product owner
     source: {kind: code, ref: "site/vite.config.ts, site/index.html"}
+
+notices:
+  - id: site-notice
+    component: site
+    kind: none # no privacy page on the site yet
+    ref: site/index.html
+    source: {kind: code, ref: "site/index.html, site/src/i18n.ts"}
+  - id: app-notice
+    component: app
+    kind: none # no information screen in the app yet
+    ref: first launch
+    source: {kind: code, ref: "src/main.rs"}
 
 automated_decisions: []
 
@@ -163,6 +215,11 @@ ai_features:
     generates_content: true
     interacts_with_persons: false
     human_review: false # found: the text is pasted with no step in between
+    role: to-assess # C2-POLY ships an open speech-to-text model inside its app: provider, to confirm
+    risk: {level: to-assess, reason: "Speech-to-text for dictation, run locally; no Annex III use found. Likely limited, to confirm."}
+    obligations:
+      - {id: art4-ai-literacy, status: open}
+      - {id: art50-synthetic-content, status: open, ref: "Dictation help may fall under the assistive editing exception; to assess"}
     marking: the window and the floating pill show "Transcription…" and the model in use (page "Modèle et langue") # declared: question 6, developer and product owner
     data: [voice-recording, dictated-text]
     source: {kind: code, ref: "src/whisper.rs, src/engine.rs"}
@@ -173,6 +230,12 @@ ai_features:
     generates_content: true
     interacts_with_persons: true
     human_review: true # inferred: nothing is applied, Claude Code only reads files and the person reads the answer; to confirm
+    role: to-assess # the app calls Claude Code with the person's own account: deployer, or none, to confirm
+    risk: {level: to-assess, reason: "Answers about the person's own repository, read-only; no Annex III use found. Likely limited, to confirm."}
+    obligations:
+      - {id: art4-ai-literacy, status: open}
+      - {id: art50-interaction, status: done, ref: "The page and the shortcut are labelled Claude Code"}
+      - {id: art50-synthetic-content, status: open}
     marking: the page and the shortcut are labelled "Claude Code" # found in src/main.rs
     data: [claude-questions]
     source: {kind: code, ref: "src/claude.rs, src/main.rs"}
