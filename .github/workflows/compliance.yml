@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: C2-POLY/compliance-action@74e145e3f2851c4e09ce0beba1ab3528489da70b # v1.2.0
+      - uses: C2-POLY/compliance-action@0c36233ef8fd9701cf9176dc50c67bb33734ce0b # v1.3.0
         with:
           mode: check
 
@@ -42,7 +42,7 @@ jobs:
           repositories: compliance-records
           permission-contents: write
 
-      - uses: C2-POLY/compliance-action@74e145e3f2851c4e09ce0beba1ab3528489da70b # v1.2.0
+      - uses: C2-POLY/compliance-action@0c36233ef8fd9701cf9176dc50c67bb33734ce0b # v1.3.0
         with:
           mode: send
           compliance-repo: C2-POLY/compliance-records
